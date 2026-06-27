@@ -28,5 +28,5 @@ func ConnectRedis(uri string) {
 	if err := RDB.Ping(context.Background()).Err(); err != nil {
 		log.Fatalf("redis ping: %v", err)
 	}
-	log.Println("Redis connected")
+	log.Println("Redis DB connected successfully")
 }

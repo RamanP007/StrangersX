@@ -26,7 +26,7 @@ func ConnectMongo(uri string) {
 
 	DB = client.Database("omegle")
 	ensureIndexes(ctx)
-	log.Println("MongoDB connected")
+	log.Println("Database connection successful (MongoDB)")
 }
 
 func ensureIndexes(ctx context.Context) {

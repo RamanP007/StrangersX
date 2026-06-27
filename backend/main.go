@@ -60,7 +60,7 @@ func main() {
 	}
 
 	addr := fmt.Sprintf(":%s", config.App.Port)
-	log.Printf("server starting on %s", addr)
+	log.Printf("Server running on port %s", config.App.Port)
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
