@@ -12,10 +12,16 @@ function rememberIntent(intent?: Intent) {
   if (intent) sessionStorage.setItem('chatIntent', intent)
 }
 
-export function AuthButtons({ intent }: { intent?: Intent } = {}) {
+export function AuthButtons({ intent, stacked = false }: { intent?: Intent; stacked?: boolean } = {}) {
   const router = useRouter()
   const { data: session } = useSession()
   const [loading, setLoading] = useState<'google' | 'guest' | null>(null)
+
+  // In narrow containers (e.g. the promo card) stack full-width; otherwise sit side-by-side.
+  const containerClass = stacked
+    ? 'flex w-full flex-col gap-3'
+    : 'flex flex-col justify-center gap-3 sm:flex-row'
+  const sizeClass = stacked ? 'w-full py-3 text-base' : 'min-w-[220px] py-3 text-base'
 
   async function handleGoogleSignIn() {
     rememberIntent(intent)
@@ -44,10 +50,10 @@ export function AuthButtons({ intent }: { intent?: Intent } = {}) {
 
   if (session?.user) {
     return (
-      <div className="flex justify-center">
+      <div className={stacked ? 'flex w-full' : 'flex justify-center'}>
         <button
           onClick={() => { rememberIntent(intent); router.push('/chat') }}
-          className="btn px-8 py-3 text-base"
+          className={`btn text-base ${stacked ? 'w-full py-3' : 'px-8 py-3'}`}
         >
           {intent === 'video' ? 'Start video chat' : 'Start chatting'}
         </button>
@@ -56,15 +62,15 @@ export function AuthButtons({ intent }: { intent?: Intent } = {}) {
   }
 
   return (
-    <div className="flex flex-col justify-center gap-3 sm:flex-row">
+    <div className={containerClass}>
       <button onClick={handleGoogleSignIn} disabled={loading !== null}
-        className="btn min-w-[220px] py-3 text-base">
+        className={`btn ${sizeClass}`}>
         {loading === 'google' ? <Spinner size={18} /> : <Google size={18} />}
         Sign in with Google
       </button>
 
       <button onClick={handleGuest} disabled={loading !== null}
-        className="btn-outline min-w-[220px] py-3 text-base">
+        className={`btn-outline ${sizeClass}`}>
         {loading === 'guest' ? <Spinner size={18} /> : null}
         Chat as guest
       </button>

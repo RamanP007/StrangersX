@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "autoprefixer": "^10.4.19",
-    "next": "14.2.4",
+    "next": "^14.2.35",
     "next-auth": "^4.24.7",
     "next-themes": "^0.3.0",
     "postcss": "^8.4.38",
@@ -24,7 +24,7 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "eslint": "^8.57.0",
-    "eslint-config-next": "14.2.4",
+    "eslint-config-next": "^14.2.35",
     "typescript": "^5.4.5"
   }
 }
