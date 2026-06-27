@@ -1,0 +1,605 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+    "name": "StrangerX Backend API",
+    "description": "Complete API collection for the StrangerX backend (Go + Gin).\n\n## Base URL\n- Local: `http://localhost:8080`\n- Set the `baseUrl` collection/environment variable accordingly.\n\n## Authentication\nProtected endpoints accept **either** of:\n- `Authorization: Bearer {{jwtToken}}` — for Google-signed-in users (JWT issued by `POST /api/auth/google`).\n- `X-Guest-Token: {{guestToken}}` — for anonymous guests (UUID issued by `POST /api/guest/session`).\n\nRun **Auth → Google Sign In** or **Auth → Create Guest Session** first; their test scripts auto-store `jwtToken` / `guestToken` into collection variables.\n\nNote: `GET /api/me`, `PATCH /api/me/username`, `POST /api/me/username/confirm`, `POST /api/me/terms/accept` and `DELETE /api/me` are for **registered (JWT) users only** — guests receive `400`/`403`.\n\n## Realtime\nChat and presence use WebSockets (`/ws`, `/ws/presence`). See the **Realtime (WebSocket)** folder for the message protocols.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "wsBaseUrl", "value": "ws://localhost:8080", "type": "string" },
+    { "key": "jwtToken", "value": "", "type": "string" },
+    { "key": "guestToken", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Liveness probe. Returns `200` with a status payload when the server is up."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"status\": \"ok\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Online Users Count",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/online",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "online"]
+            },
+            "description": "Returns the current number of live presence connections (also pushed in real time over `/ws/presence`). Backed by Redis (`online:count`)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/online", "host": ["{{baseUrl}}"], "path": ["api", "online"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"count\": 1234\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Google Sign In",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.token) {",
+                  "    pm.collectionVariables.set('jwtToken', data.token);",
+                  "    console.log('Saved jwtToken');",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"PASTE_GOOGLE_ID_TOKEN_HERE\",\n  \"termsAccepted\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/google",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "google"]
+            },
+            "description": "Verifies a Google ID token, upserts the user in MongoDB, and returns a signed JWT.\n\nNew users are created with a random unique `username` and `usernameConfirmed: false` / `termsAndConditionAccepted: false`.\n\n**Body**\n- `idToken` (string, required) — the Google ID token from the frontend OAuth flow.\n- `termsAccepted` (bool) — legacy flag (no longer gates login; in-app T&C is tracked separately).\n\nThe test script stores `token` into the `jwtToken` collection variable."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": { "mode": "raw", "raw": "{\n  \"idToken\": \"eyJhbGciOiJSUzI1NiIs...\",\n  \"termsAccepted\": true\n}" },
+                "url": { "raw": "{{baseUrl}}/api/auth/google", "host": ["{{baseUrl}}"], "path": ["api", "auth", "google"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n  \"user\": {\n    \"id\": \"66a1f0c3e1b2a3d4e5f60718\",\n    \"googleId\": \"108512345678901234567\",\n    \"email\": \"jane@example.com\",\n    \"name\": \"Jane Doe\",\n    \"avatar\": \"https://lh3.googleusercontent.com/a/ACg8ocK...\",\n    \"username\": \"CrimsonViper742\",\n    \"usernameConfirmed\": false,\n    \"termsAccepted\": true,\n    \"termsAcceptedAt\": \"2026-06-27T16:00:00Z\",\n    \"termsAndConditionAccepted\": false,\n    \"termsAndConditionAcceptedAt\": null,\n    \"createdAt\": \"2026-06-27T16:00:00Z\",\n    \"reportCount\": 0\n  }\n}"
+            },
+            {
+              "name": "400 Bad Request (missing idToken)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": { "mode": "raw", "raw": "{}" },
+                "url": { "raw": "{{baseUrl}}/api/auth/google", "host": ["{{baseUrl}}"], "path": ["api", "auth", "google"] }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"error\": \"idToken is required\"\n}"
+            },
+            {
+              "name": "401 Unauthorized (invalid token)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": { "mode": "raw", "raw": "{\n  \"idToken\": \"invalid\",\n  \"termsAccepted\": true\n}" },
+                "url": { "raw": "{{baseUrl}}/api/auth/google", "host": ["{{baseUrl}}"], "path": ["api", "auth", "google"] }
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"error\": \"invalid Google token\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Create Guest Session",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.guestToken) {",
+                  "    pm.collectionVariables.set('guestToken', data.guestToken);",
+                  "    console.log('Saved guestToken');",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/guest/session",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "guest", "session"]
+            },
+            "description": "Creates an anonymous guest session. Returns a UUID stored in Redis with a 24h TTL. Use it as the `X-Guest-Token` header on guest-accessible endpoints (e.g. Submit Report).\n\nThe test script stores `guestToken` into the collection variable."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/guest/session", "host": ["{{baseUrl}}"], "path": ["api", "guest", "session"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"guestToken\": \"2db0230b-4e16-4cbb-84a3-87dcb586f68a\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Account (protected)",
+      "item": [
+        {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwtToken}}" },
+              { "key": "X-Guest-Token", "value": "{{guestToken}}", "disabled": true, "description": "Alternative auth (guests get 400 on this endpoint)." }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "me"]
+            },
+            "description": "Returns the authenticated user's profile. Registered (JWT) users only."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/me", "host": ["{{baseUrl}}"], "path": ["api", "me"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"user\": {\n    \"id\": \"66a1f0c3e1b2a3d4e5f60718\",\n    \"googleId\": \"108512345678901234567\",\n    \"email\": \"jane@example.com\",\n    \"name\": \"Jane Doe\",\n    \"avatar\": \"https://lh3.googleusercontent.com/a/ACg8ocK...\",\n    \"username\": \"CrimsonViper742\",\n    \"usernameConfirmed\": true,\n    \"termsAccepted\": true,\n    \"termsAcceptedAt\": \"2026-06-27T16:00:00Z\",\n    \"termsAndConditionAccepted\": true,\n    \"termsAndConditionAcceptedAt\": \"2026-06-27T16:05:00Z\",\n    \"createdAt\": \"2026-06-27T16:00:00Z\",\n    \"reportCount\": 0\n  }\n}"
+            },
+            {
+              "name": "401 Unauthorized",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/me", "host": ["{{baseUrl}}"], "path": ["api", "me"] }
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"error\": \"unauthorized\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Check Username Availability",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/username/check?username=CoolName_22",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "username", "check"],
+              "query": [{ "key": "username", "value": "CoolName_22" }]
+            },
+            "description": "Checks whether a username is valid and available (case-insensitive, excluding the current user).\n\nRules: 3–20 chars, letters/numbers/underscore only."
+          },
+          "response": [
+            {
+              "name": "200 OK (available)",
+              "originalRequest": {
+                "method": "GET",
+                "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/username/check?username=CoolName_22", "host": ["{{baseUrl}}"], "path": ["api", "username", "check"], "query": [{ "key": "username", "value": "CoolName_22" }] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"available\": true\n}"
+            },
+            {
+              "name": "200 OK (taken)",
+              "originalRequest": {
+                "method": "GET",
+                "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/username/check?username=taken", "host": ["{{baseUrl}}"], "path": ["api", "username", "check"], "query": [{ "key": "username", "value": "taken" }] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"available\": false\n}"
+            },
+            {
+              "name": "200 OK (invalid format)",
+              "originalRequest": {
+                "method": "GET",
+                "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/username/check?username=ab", "host": ["{{baseUrl}}"], "path": ["api", "username", "check"], "query": [{ "key": "username", "value": "ab" }] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"available\": false,\n  \"reason\": \"username must be 3-20 characters: letters, numbers, underscore only\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Update Username",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"CoolName_22\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/me/username",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "me", "username"]
+            },
+            "description": "Updates the user's username (validated + uniqueness checked) and sets `usernameConfirmed: true`. Registered users only.\n\n**Body**\n- `username` (string, required) — 3–20 chars, letters/numbers/underscore."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "PATCH",
+                "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+                "body": { "mode": "raw", "raw": "{\n  \"username\": \"CoolName_22\"\n}" },
+                "url": { "raw": "{{baseUrl}}/api/me/username", "host": ["{{baseUrl}}"], "path": ["api", "me", "username"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"user\": {\n    \"id\": \"66a1f0c3e1b2a3d4e5f60718\",\n    \"username\": \"CoolName_22\",\n    \"usernameConfirmed\": true,\n    \"email\": \"jane@example.com\",\n    \"name\": \"Jane Doe\",\n    \"avatar\": \"https://lh3.googleusercontent.com/a/ACg8ocK...\",\n    \"termsAndConditionAccepted\": true,\n    \"createdAt\": \"2026-06-27T16:00:00Z\",\n    \"reportCount\": 0\n  }\n}"
+            },
+            {
+              "name": "409 Conflict (taken)",
+              "originalRequest": {
+                "method": "PATCH",
+                "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+                "body": { "mode": "raw", "raw": "{\n  \"username\": \"taken\"\n}" },
+                "url": { "raw": "{{baseUrl}}/api/me/username", "host": ["{{baseUrl}}"], "path": ["api", "me", "username"] }
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"error\": \"username already taken\"\n}"
+            },
+            {
+              "name": "400 Bad Request (invalid)",
+              "originalRequest": {
+                "method": "PATCH",
+                "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+                "body": { "mode": "raw", "raw": "{\n  \"username\": \"a\"\n}" },
+                "url": { "raw": "{{baseUrl}}/api/me/username", "host": ["{{baseUrl}}"], "path": ["api", "me", "username"] }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"error\": \"username must be 3-20 characters: letters, numbers, underscore only\"\n}"
+            },
+            {
+              "name": "403 Forbidden (guest)",
+              "originalRequest": {
+                "method": "PATCH",
+                "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Guest-Token", "value": "{{guestToken}}" }],
+                "body": { "mode": "raw", "raw": "{\n  \"username\": \"CoolName_22\"\n}" },
+                "url": { "raw": "{{baseUrl}}/api/me/username", "host": ["{{baseUrl}}"], "path": ["api", "me", "username"] }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"error\": \"guests cannot set a username\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Confirm Username",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/me/username/confirm",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "me", "username", "confirm"]
+            },
+            "description": "Marks the current auto-generated username as confirmed (`usernameConfirmed: true`) without changing it. Used when the user clicks \"Keep this name\" in the onboarding popup."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/me/username/confirm", "host": ["{{baseUrl}}"], "path": ["api", "me", "username", "confirm"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"user\": {\n    \"id\": \"66a1f0c3e1b2a3d4e5f60718\",\n    \"username\": \"CrimsonViper742\",\n    \"usernameConfirmed\": true\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Accept Terms & Conditions",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/me/terms/accept",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "me", "terms", "accept"]
+            },
+            "description": "Records explicit in-app Terms & Conditions acceptance (`termsAndConditionAccepted: true` + timestamp). Registered users only — guests get `403`."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/me/terms/accept", "host": ["{{baseUrl}}"], "path": ["api", "me", "terms", "accept"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"user\": {\n    \"id\": \"66a1f0c3e1b2a3d4e5f60718\",\n    \"termsAndConditionAccepted\": true,\n    \"termsAndConditionAcceptedAt\": \"2026-06-27T16:05:00Z\"\n  }\n}"
+            },
+            {
+              "name": "403 Forbidden (guest)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "X-Guest-Token", "value": "{{guestToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/me/terms/accept", "host": ["{{baseUrl}}"], "path": ["api", "me", "terms", "accept"] }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"error\": \"guests have no account\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Account",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "me"]
+            },
+            "description": "Permanently deletes the authenticated user from MongoDB and revokes their session. Registered users only."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/me", "host": ["{{baseUrl}}"], "path": ["api", "me"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"message\": \"account deleted\"\n}"
+            },
+            {
+              "name": "403 Forbidden (guest)",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [{ "key": "X-Guest-Token", "value": "{{guestToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/me", "host": ["{{baseUrl}}"], "path": ["api", "me"] }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"error\": \"guests have no account to delete\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Moderation (protected)",
+      "item": [
+        {
+          "name": "Submit Report",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{jwtToken}}" },
+              { "key": "X-Guest-Token", "value": "{{guestToken}}", "disabled": true, "description": "Use this instead of Authorization when reporting as a guest." }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reportedSocketId\": \"b3f1a2c4-...\",\n  \"reason\": \"Explicit or inappropriate content\",\n  \"note\": \"Optional details about what happened.\",\n  \"roomId\": \"room-1719503200\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/report",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "report"]
+            },
+            "description": "Submits a moderation report about a chat partner. Works for both registered (JWT) and guest (X-Guest-Token) users.\n\n**Body**\n- `reportedSocketId` (string, required) — the partner's socket id.\n- `reason` (string, required) — report category.\n- `note` (string, optional) — free text.\n- `roomId` (string, optional) — the chat room id."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+                "body": { "mode": "raw", "raw": "{\n  \"reportedSocketId\": \"b3f1a2c4-...\",\n  \"reason\": \"Explicit or inappropriate content\",\n  \"note\": \"\",\n  \"roomId\": \"room-1719503200\"\n}" },
+                "url": { "raw": "{{baseUrl}}/api/report", "host": ["{{baseUrl}}"], "path": ["api", "report"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"message\": \"report submitted\"\n}"
+            },
+            {
+              "name": "400 Bad Request (missing fields)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+                "body": { "mode": "raw", "raw": "{}" },
+                "url": { "raw": "{{baseUrl}}/api/report", "host": ["{{baseUrl}}"], "path": ["api", "report"] }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"error\": \"Key: 'reportRequest.ReportedSocketID' Error:Field validation for 'ReportedSocketID' failed on the 'required' tag\"\n}"
+            },
+            {
+              "name": "401 Unauthorized",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": { "mode": "raw", "raw": "{\n  \"reportedSocketId\": \"x\",\n  \"reason\": \"Spam\"\n}" },
+                "url": { "raw": "{{baseUrl}}/api/report", "host": ["{{baseUrl}}"], "path": ["api", "report"] }
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "body": "{\n  \"error\": \"unauthorized\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Realtime (WebSocket)",
+      "description": "WebSocket endpoints. In Postman, create a **New → WebSocket Request** and connect to these URLs (Postman cannot send WebSocket frames from a regular HTTP collection item).\n\n### 1) Chat — `{{wsBaseUrl}}/ws?token=<jwtOrGuestToken>`\nJSON messages.\n\n**Client → Server**\n- `{ \"type\": \"join_queue\", \"interests\": [\"music\"], \"mode\": \"random|interests\", \"chatType\": \"text|video\" }`\n- `{ \"type\": \"message\", \"text\": \"hello\" }`\n- `{ \"type\": \"skip\" }`\n- `{ \"type\": \"webrtc_offer\", \"data\": { /* RTCSessionDescription */ } }`\n- `{ \"type\": \"webrtc_answer\", \"data\": { /* RTCSessionDescription */ } }`\n- `{ \"type\": \"webrtc_ice\", \"data\": { /* RTCIceCandidate */ } }`\n- `{ \"type\": \"ping\" }`\n\n**Server → Client**\n- `{ \"type\": \"queued\", \"status\": \"searching\" }`\n- `{ \"type\": \"matched\", \"roomId\": \"...\", \"chatType\": \"text|video\", \"initiator\": true|false }`\n- `{ \"type\": \"message\", \"text\": \"hi\", \"from\": \"stranger\" }`\n- `{ \"type\": \"partner_left\" }`\n- `{ \"type\": \"skipped\" }`\n- `{ \"type\": \"webrtc_offer|webrtc_answer|webrtc_ice\", \"data\": { ... } }`\n- `{ \"type\": \"pong\" }`\n\n### 2) Presence — `{{wsBaseUrl}}/ws/presence`\nNo client messages needed. On connect/disconnect of any tab the server broadcasts:\n- `{ \"type\": \"online_count\", \"count\": 1234 }`",
+      "item": [
+        {
+          "name": "Chat WebSocket (docs)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{wsBaseUrl}}/ws?token={{jwtToken}}",
+              "host": ["{{wsBaseUrl}}"],
+              "path": ["ws"],
+              "query": [{ "key": "token", "value": "{{jwtToken}}" }]
+            },
+            "description": "WebSocket (chat). Open as a Postman WebSocket Request. See the folder description for the full message protocol. `token` may be a JWT or a guest token."
+          },
+          "response": []
+        },
+        {
+          "name": "Presence WebSocket (docs)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{wsBaseUrl}}/ws/presence",
+              "host": ["{{wsBaseUrl}}"],
+              "path": ["ws", "presence"]
+            },
+            "description": "WebSocket (presence). Open as a Postman WebSocket Request. Streams `online_count` messages; no client messages required."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

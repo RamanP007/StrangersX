@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"omegle-backend/config"
 )
 
 // ─── Message protocol ────────────────────────────────────────────────────────
@@ -81,13 +82,22 @@ func (h *Hub) Send(clientID string, msg OutMsg) {
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// Allow localhost and Docker service origins
-		origin := r.Header.Get("Origin")
-		return origin == "" ||
-			origin == "http://localhost:3000" ||
-			origin == "http://frontend:3000"
-	},
+	CheckOrigin:     originAllowed,
+}
+
+// originAllowed permits non-browser clients (empty Origin) and any origin in the
+// configured allow-list (CORS_ORIGINS / FRONTEND_URL). "*" allows everything.
+func originAllowed(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	for _, o := range config.App.AllowedOrigins {
+		if o == "*" || o == origin {
+			return true
+		}
+	}
+	return false
 }
 
 // ─── HTTP handler ─────────────────────────────────────────────────────────────

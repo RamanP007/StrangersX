@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Message, ChatStatus, ChatType, SignalMessage } from '@/types'
 import { nanoid } from '@/lib/nanoid'
+import { wsUrl } from '@/lib/ws'
 
 interface OutMsg {
   type: string
@@ -30,7 +31,7 @@ export function useSocket(token: string | null) {
   useEffect(() => {
     if (!token) return
 
-    const url = `${process.env.NEXT_PUBLIC_SOCKET_URL!.replace(/^http/, 'ws')}/ws?token=${token}`
+    const url = `${wsUrl('/ws')}?token=${encodeURIComponent(token)}`
     const ws = new WebSocket(url)
     wsRef.current = ws
 

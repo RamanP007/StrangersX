@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { wsUrl } from '@/lib/ws'
 
 /**
  * Live online-users count, pushed over a presence WebSocket (no polling).
@@ -23,8 +24,7 @@ export function useOnlineCount() {
     let retry: ReturnType<typeof setTimeout>
 
     function connect() {
-      const url = `${process.env.NEXT_PUBLIC_SOCKET_URL!.replace(/^http/, 'ws')}/ws/presence`
-      ws = new WebSocket(url)
+      ws = new WebSocket(wsUrl('/ws/presence'))
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data)

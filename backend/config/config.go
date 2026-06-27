@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -13,6 +14,7 @@ type Config struct {
 	RedisURI       string
 	JWTSecret      string
 	GoogleClientID string
+	AllowedOrigins []string
 }
 
 var App Config
@@ -27,7 +29,28 @@ func Load() {
 		RedisURI:       resolveRedisURI(),
 		JWTSecret:      mustGetEnv("JWT_SECRET"),
 		GoogleClientID: mustGetEnv("GOOGLE_CLIENT_ID"),
+		AllowedOrigins: resolveAllowedOrigins(),
 	}
+}
+
+// resolveAllowedOrigins reads CORS_ORIGINS (comma-separated) or FRONTEND_URL,
+// falling back to local dev origins. These gate both CORS and WebSocket origins.
+func resolveAllowedOrigins() []string {
+	if v := os.Getenv("CORS_ORIGINS"); v != "" {
+		var out []string
+		for _, p := range strings.Split(v, ",") {
+			if p = strings.TrimSpace(strings.TrimRight(p, "/")); p != "" {
+				out = append(out, p)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("FRONTEND_URL")); v != "" {
+		return []string{strings.TrimRight(v, "/")}
+	}
+	return []string{"http://localhost:3000", "http://frontend:3000"}
 }
 
 // resolveRedisURI prefers REDIS_URI (a full redis:// or rediss:// connection

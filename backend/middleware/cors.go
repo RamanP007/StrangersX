@@ -3,12 +3,14 @@ package middleware
 import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	appcfg "omegle-backend/config"
 )
 
 func CORS() gin.HandlerFunc {
-	config := cors.DefaultConfig()
-	config.AllowOrigins = []string{"http://localhost:3000", "http://frontend:3000"}
-	config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "X-Guest-Token"}
-	config.AllowCredentials = true
-	return cors.New(config)
+	c := cors.DefaultConfig()
+	c.AllowOrigins = appcfg.App.AllowedOrigins
+	c.AllowMethods = []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"}
+	c.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "X-Guest-Token"}
+	c.AllowCredentials = true
+	return cors.New(c)
 }
