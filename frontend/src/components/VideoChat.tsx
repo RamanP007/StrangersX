@@ -46,7 +46,8 @@ export function VideoChat({
 
         {/* LEFT — self */}
         <div className="relative min-h-[30vh] overflow-hidden rounded-xl border border-border bg-muted lg:min-h-0">
-          <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+          {/* Mirrored like a phone's front camera */}
+          <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full -scale-x-100 object-cover" />
           <span className="absolute left-3 top-3 z-10 rounded-full border border-border bg-background/70 px-2.5 py-1 text-xs font-medium backdrop-blur">
             You
           </span>

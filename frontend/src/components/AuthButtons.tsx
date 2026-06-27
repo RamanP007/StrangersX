@@ -65,7 +65,13 @@ export function AuthButtons({ intent, stacked = false }: { intent?: Intent; stac
     <div className={containerClass}>
       <button onClick={handleGoogleSignIn} disabled={loading !== null}
         className={`btn ${sizeClass}`}>
-        {loading === 'google' ? <Spinner size={18} /> : <Google size={18} />}
+        {loading === 'google' ? (
+          <Spinner size={18} />
+        ) : (
+          <span className="flex h-6 w-6 items-center justify-center rounded bg-white">
+            <Google size={16} />
+          </span>
+        )}
         Sign in with Google
       </button>
 

@@ -5,6 +5,7 @@ import { ThemeToggle } from './ThemeToggle'
 import { Logo } from './Logo'
 import { OnlinePill } from './OnlinePill'
 import { ProfileMenu } from './ProfileMenu'
+import { HeaderSignInButton } from './HeaderSignInButton'
 
 export function Header() {
   return (
@@ -28,9 +29,10 @@ export function Header() {
             Terms &amp; Conditions
           </Link>
 
-          <ThemeToggle />
+          <HeaderSignInButton />
           <OnlinePill />
           <ProfileMenu />
+          <ThemeToggle />
         </nav>
       </div>
     </header>

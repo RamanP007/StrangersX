@@ -4,14 +4,15 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 4%;
+    /* Soft slate-tinted light theme — cards stay white for subtle depth */
+    --background: 220 33% 96%;
+    --foreground: 222 47% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 4%;
-    --muted: 240 5% 96%;
-    --muted-foreground: 240 4% 46%;
-    --border: 240 6% 90%;
-    --input: 240 6% 90%;
+    --card-foreground: 222 47% 11%;
+    --muted: 220 20% 93%;
+    --muted-foreground: 215 16% 42%;
+    --border: 215 24% 88%;
+    --input: 215 24% 88%;
     --primary: 262 83% 58%;
     --primary-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
@@ -254,4 +255,29 @@
 @media (prefers-reduced-motion: reduce) {
   .bgfx-blob, .bgfx-grid { animation: none; }
   .bgfx-cursor { transition: none; }
+}
+
+/* ── Theme switching ───────────────────────────────────────────────────────── */
+/* Fallback (no View Transitions): smoothly cross-fade every color. */
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after {
+  transition: background-color 0.55s ease, border-color 0.55s ease, color 0.55s ease,
+    fill 0.55s ease, stroke 0.55s ease, box-shadow 0.55s ease !important;
+  transition-delay: 0s !important;
+}
+
+/* View Transitions: reveal the new theme with an expanding circle. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) { z-index: 1; }
+::view-transition-new(root) { z-index: 2147483646; }
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) { animation: none !important; }
 }
