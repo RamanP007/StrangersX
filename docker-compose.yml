@@ -34,8 +34,10 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      MONGO_URI: mongodb://mongo:27017/omegle
-      REDIS_ADDR: redis:6379
+      # Use the values from .env if set, otherwise fall back to the bundled
+      # mongo/redis services on the Docker network.
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017/omegle}
+      REDIS_URI: ${REDIS_URI:-redis://redis:6379}
       PORT: "8080"
     ports:
       - "8080:8080"

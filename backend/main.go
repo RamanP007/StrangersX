@@ -16,7 +16,7 @@ func main() {
 	config.Load()
 
 	services.ConnectMongo(config.App.MongoURI)
-	services.ConnectRedis(config.App.RedisAddr)
+	services.ConnectRedis(config.App.RedisURI)
 	services.ResetOnlineCount()
 
 	r := gin.Default()
