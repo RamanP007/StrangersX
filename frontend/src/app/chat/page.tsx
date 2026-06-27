@@ -12,16 +12,16 @@ import { ReportModal } from '@/components/ReportModal'
 import { UsernamePopup } from '@/components/UsernamePopup'
 import { useSocket } from '@/hooks/useSocket'
 import { useWebRTC } from '@/hooks/useWebRTC'
+import { useBackendAuth } from '@/components/BackendAuthProvider'
 import { MessageSquare, Video, Shuffle, Target } from '@/components/icons'
-import type { MatchMode, ChatType, User } from '@/types'
-import toast from 'react-hot-toast'
+import type { MatchMode, ChatType } from '@/types'
 
 export default function ChatPage() {
   const router = useRouter()
   const { data: session, status: sessionStatus } = useSession()
+  const { token: authToken, user: authUser, setUser } = useBackendAuth()
 
-  const [token, setToken] = useState<string | null>(null)
-  const [profile, setProfile] = useState<User | null>(null)
+  const [guestToken, setGuestToken] = useState<string | null>(null)
   const [showUsernamePopup, setShowUsernamePopup] = useState(false)
 
   const [interests, setInterests] = useState<string[]>([])
@@ -30,38 +30,21 @@ export default function ChatPage() {
   const [showReport, setShowReport] = useState(false)
   const [started, setStarted] = useState(false)
 
-  useEffect(() => {
-    async function resolveToken() {
-      const guestToken = sessionStorage.getItem('guestToken')
-      if (guestToken) { setToken(guestToken); return }
-      if (session) {
-        const idToken = (session as any).idToken
-        if (!idToken) return
-        try {
-          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/google`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ idToken, termsAccepted: true }),
-          })
-          if (!res.ok) throw new Error('auth failed')
-          const data = await res.json()
-          setToken(data.token)
-          setProfile(data.user)
-          if (data.user && !data.user.usernameConfirmed) setShowUsernamePopup(true)
-        } catch {
-          toast.error('Authentication failed. Redirecting…')
-          router.push('/')
-        }
-      }
-    }
-    if (sessionStatus !== 'loading') resolveToken()
-  }, [session, sessionStatus, router])
+  // Registered users use the shared backend JWT; guests use their session token.
+  const token = authToken ?? guestToken
+  const profile = authUser
 
   useEffect(() => {
     if (sessionStatus === 'loading') return
-    const guestToken = sessionStorage.getItem('guestToken')
-    if (!session && !guestToken) router.push('/')
+    const gt = sessionStorage.getItem('guestToken')
+    setGuestToken(gt)
+    if (!session && !gt) router.push('/')
   }, [session, sessionStatus, router])
+
+  // Show the username popup for new (unconfirmed) registered users.
+  useEffect(() => {
+    if (authUser && !authUser.usernameConfirmed) setShowUsernamePopup(true)
+  }, [authUser])
 
   // Honor the "video" intent set from the homepage video-chat CTA.
   useEffect(() => {
@@ -241,7 +224,7 @@ export default function ChatPage() {
           token={token}
           initialUsername={profile.username}
           onDone={(finalUsername) => {
-            setProfile(p => (p ? { ...p, username: finalUsername, usernameConfirmed: true } : p))
+            setUser({ ...profile, username: finalUsername, usernameConfirmed: true })
             setShowUsernamePopup(false)
           }}
         />

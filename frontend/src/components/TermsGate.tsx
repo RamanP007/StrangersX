@@ -1,47 +1,22 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useSession } from 'next-auth/react'
+import { useBackendAuth } from './BackendAuthProvider'
 import { TermsModal } from './TermsModal'
 
 /**
- * Global gate: for Google-signed-in users, checks whether Terms & Conditions
- * have been accepted in the database. If not, shows a blocking modal on every
- * page (and after refresh / re-login) until the user accepts. Guests are
- * unaffected (they have no next-auth session).
+ * Global gate: shows a blocking Terms & Conditions modal on every page until a
+ * signed-in user accepts. Reads the shared backend auth (no extra API call).
+ * Guests are unaffected (they have no backend user).
  */
 export function TermsGate() {
-  const { data: session, status } = useSession()
-  const [token, setToken] = useState<string | null>(null)
-  const [accepted, setAccepted] = useState<boolean | null>(null)
+  const { token, user, setUser } = useBackendAuth()
 
-  useEffect(() => {
-    if (status !== 'authenticated') return
-    const idToken = (session as any)?.idToken
-    if (!idToken) return
+  if (!token || !user || user.termsAndConditionAccepted) return null
 
-    let cancelled = false
-    ;(async () => {
-      try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/google`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idToken, termsAccepted: true }),
-        })
-        if (!res.ok) throw new Error()
-        const data = await res.json()
-        if (cancelled) return
-        setToken(data.token)
-        setAccepted(Boolean(data.user?.termsAndConditionAccepted))
-      } catch {
-        /* ignore — gate simply won't show */
-      }
-    })()
-
-    return () => { cancelled = true }
-  }, [session, status])
-
-  if (!token || accepted !== false) return null
-
-  return <TermsModal token={token} onAccepted={() => setAccepted(true)} />
+  return (
+    <TermsModal
+      token={token}
+      onAccepted={() => setUser({ ...user, termsAndConditionAccepted: true })}
+    />
+  )
 }

@@ -6,16 +6,13 @@ import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { Header } from '@/components/Header'
 import { Footer } from '@/components/Footer'
-import type { User } from '@/types'
+import { useBackendAuth } from '@/components/BackendAuthProvider'
 import toast from 'react-hot-toast'
 
 export default function SettingsPage() {
   const router = useRouter()
   const { data: session, status: sessionStatus } = useSession()
-
-  const [token, setToken] = useState<string | null>(null)
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { token, user, loading, setUser } = useBackendAuth()
 
   const [username, setUsername] = useState('')
   const [available, setAvailable] = useState<boolean | null>(null)
@@ -24,29 +21,15 @@ export default function SettingsPage() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  // Settings is for registered users only.
   useEffect(() => {
-    if (sessionStatus === 'loading') return
-    if (!session) { router.push('/'); return }
-    async function load() {
-      const idToken = (session as any).idToken
-      if (!idToken) { setLoading(false); return }
-      try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/google`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idToken, termsAccepted: true }),
-        })
-        if (!res.ok) throw new Error()
-        const data = await res.json()
-        setToken(data.token); setUser(data.user); setUsername(data.user.username)
-      } catch {
-        toast.error('Failed to load your profile.')
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
+    if (sessionStatus !== 'loading' && !session) router.push('/')
   }, [session, sessionStatus, router])
+
+  // Seed the username field once the profile loads.
+  useEffect(() => {
+    if (user) setUsername(user.username)
+  }, [user])
 
   useEffect(() => {
     if (!token || !user) return
