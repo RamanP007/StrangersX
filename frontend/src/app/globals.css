@@ -1,0 +1,257 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 4%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 4%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --primary: 262 83% 58%;
+    --primary-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --ring: 262 83% 58%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 240 10% 4%;
+    --foreground: 0 0% 98%;
+    --card: 240 8% 7%;
+    --card-foreground: 0 0% 98%;
+    --muted: 240 5% 13%;
+    --muted-foreground: 240 5% 64%;
+    --border: 240 5% 18%;
+    --input: 240 5% 18%;
+    --primary: 263 90% 68%;
+    --primary-foreground: 0 0% 100%;
+    --destructive: 0 72% 56%;
+    --destructive-foreground: 0 0% 100%;
+    --ring: 263 90% 68%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Minimal scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+}
+
+@layer components {
+  /* Surfaces */
+  .card {
+    @apply bg-card border border-border rounded-2xl;
+  }
+  /* Interactive card: lifts and glows on hover */
+  .card-interactive {
+    @apply transition-all duration-300 ease-out hover:-translate-y-1
+           hover:border-foreground/20 hover:shadow-xl hover:shadow-black/5;
+  }
+
+  /* Buttons — smooth lift + glow on hover, press on active */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-2.5
+           text-sm font-medium text-primary-foreground
+           transition-all duration-200 ease-out
+           hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/30
+           active:translate-y-0 active:scale-[0.97]
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50
+           disabled:pointer-events-none disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none;
+  }
+  .btn-outline {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-transparent
+           px-5 py-2.5 text-sm font-medium text-foreground
+           transition-all duration-200 ease-out
+           hover:-translate-y-0.5 hover:bg-muted hover:border-foreground/25
+           active:translate-y-0 active:scale-[0.97]
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50
+           disabled:pointer-events-none disabled:opacity-50 disabled:hover:translate-y-0;
+  }
+  .btn-destructive {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-destructive px-5 py-2.5
+           text-sm font-medium text-destructive-foreground
+           transition-all duration-200 ease-out
+           hover:-translate-y-0.5 hover:shadow-lg hover:shadow-destructive/30
+           active:translate-y-0 active:scale-[0.97]
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50
+           disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  /* Inputs */
+  .input {
+    @apply w-full rounded-lg border border-input bg-transparent px-4 py-2.5 text-sm text-foreground
+           placeholder:text-muted-foreground transition-colors
+           focus:outline-none focus:border-ring focus:ring-2 focus:ring-ring/30;
+  }
+
+  /* Chips / tags */
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-border bg-muted
+           px-3 py-1 text-sm text-foreground;
+  }
+
+  /* Legacy aliases mapped to the minimalist system (kept so nothing breaks) */
+  .glass { @apply card; }
+  .glass-sm { @apply bg-card border border-border rounded-xl; }
+  .btn-primary { @apply btn; }
+  .btn-ghost { @apply btn-outline; }
+  .mesh-bg { @apply bg-background; }
+  .orb { display: none !important; }
+}
+
+/* ── Logo mark ─────────────────────────────────────────────────────────────── */
+.logo-mark {
+  background-image: linear-gradient(135deg, hsl(var(--primary)), hsl(280 85% 62%));
+  box-shadow: 0 6px 18px -6px hsl(var(--primary) / 0.55);
+}
+
+/* ── Sonar / radar loader ──────────────────────────────────────────────────── */
+.sonar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sonar-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid hsl(var(--primary) / 0.55);
+  opacity: 0;
+  animation: sonar-pulse 2s ease-out infinite;
+}
+.sonar-ring:nth-child(2) { animation-delay: 0.66s; }
+.sonar-ring:nth-child(3) { animation-delay: 1.33s; }
+.sonar-core {
+  width: 22%;
+  height: 22%;
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  box-shadow: 0 0 18px hsl(var(--primary) / 0.8);
+  animation: sonar-core 2s ease-in-out infinite;
+}
+@keyframes sonar-pulse {
+  0%   { transform: scale(0.25); opacity: 0.9; }
+  70%  { opacity: 0.15; }
+  100% { transform: scale(1); opacity: 0; }
+}
+@keyframes sonar-core {
+  0%, 100% { transform: scale(1);   box-shadow: 0 0 14px hsl(var(--primary) / 0.6); }
+  50%      { transform: scale(1.3); box-shadow: 0 0 26px hsl(var(--primary) / 0.95); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sonar-ring { animation-duration: 3.5s; }
+  .sonar-core { animation: none; }
+}
+
+/* ── Animated aurora background ────────────────────────────────────────────── */
+.bgfx {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  overflow: hidden;
+  pointer-events: none;
+}
+.bgfx-blob {
+  position: absolute;
+  display: block;
+  width: 50vmax;
+  height: 50vmax;
+  border-radius: 9999px;
+  filter: blur(75px);
+  opacity: 0.85;
+  will-change: transform;
+}
+.bgfx-blob-1 {
+  top: -14vmax;
+  left: -8vmax;
+  background: radial-gradient(circle, hsl(262 83% 60% / 0.38), transparent 70%);
+  animation: bgfx-drift-1 26s ease-in-out infinite;
+}
+.bgfx-blob-2 {
+  bottom: -16vmax;
+  right: -10vmax;
+  background: radial-gradient(circle, hsl(290 85% 62% / 0.34), transparent 70%);
+  animation: bgfx-drift-2 32s ease-in-out infinite;
+}
+.bgfx-blob-3 {
+  top: 30%;
+  left: 45%;
+  width: 40vmax;
+  height: 40vmax;
+  background: radial-gradient(circle, hsl(220 90% 60% / 0.30), transparent 70%);
+  animation: bgfx-drift-3 38s ease-in-out infinite;
+}
+
+/* Glow that follows the cursor */
+.bgfx-cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 34vmax;
+  height: 34vmax;
+  border-radius: 9999px;
+  filter: blur(60px);
+  background: radial-gradient(circle, hsl(var(--primary) / 0.28), transparent 60%);
+  transform: translate(calc(var(--bgfx-x, 50vw) - 50%), calc(var(--bgfx-y, 50vh) - 50%));
+  transition: transform 0.18s ease-out;
+  will-change: transform;
+}
+
+/* Faint moving grid overlay for a subtle "designed" texture */
+.bgfx-grid {
+  position: absolute;
+  inset: -2px;
+  background-image:
+    linear-gradient(to right, hsl(var(--foreground) / 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, hsl(var(--foreground) / 0.04) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+  animation: bgfx-pan 40s linear infinite;
+}
+
+@keyframes bgfx-drift-1 {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(10vw, 7vh) scale(1.1); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+@keyframes bgfx-drift-2 {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(-9vw, -6vh) scale(1.08); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+@keyframes bgfx-drift-3 {
+  0%   { transform: translate(-50%, -50%) translate(0, 0); }
+  50%  { transform: translate(-50%, -50%) translate(7vw, -5vh); }
+  100% { transform: translate(-50%, -50%) translate(0, 0); }
+}
+@keyframes bgfx-pan {
+  from { background-position: 0 0; }
+  to   { background-position: 56px 56px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bgfx-blob, .bgfx-grid { animation: none; }
+  .bgfx-cursor { transition: none; }
+}

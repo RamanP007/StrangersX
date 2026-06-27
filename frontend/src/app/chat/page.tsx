@@ -1,0 +1,251 @@
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
+import { Header } from '@/components/Header'
+import { ChatBox } from '@/components/ChatBox'
+import { VideoChat } from '@/components/VideoChat'
+import { MatchingScreen } from '@/components/MatchingScreen'
+import { InterestTags } from '@/components/InterestTags'
+import { ReportModal } from '@/components/ReportModal'
+import { UsernamePopup } from '@/components/UsernamePopup'
+import { useSocket } from '@/hooks/useSocket'
+import { useWebRTC } from '@/hooks/useWebRTC'
+import { MessageSquare, Video, Shuffle, Target } from '@/components/icons'
+import type { MatchMode, ChatType, User } from '@/types'
+import toast from 'react-hot-toast'
+
+export default function ChatPage() {
+  const router = useRouter()
+  const { data: session, status: sessionStatus } = useSession()
+
+  const [token, setToken] = useState<string | null>(null)
+  const [profile, setProfile] = useState<User | null>(null)
+  const [showUsernamePopup, setShowUsernamePopup] = useState(false)
+
+  const [interests, setInterests] = useState<string[]>([])
+  const [mode, setMode] = useState<MatchMode>('random')
+  const [chatType, setChatType] = useState<ChatType>('text')
+  const [showReport, setShowReport] = useState(false)
+  const [started, setStarted] = useState(false)
+
+  useEffect(() => {
+    async function resolveToken() {
+      const guestToken = sessionStorage.getItem('guestToken')
+      if (guestToken) { setToken(guestToken); return }
+      if (session) {
+        const idToken = (session as any).idToken
+        if (!idToken) return
+        try {
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/google`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken, termsAccepted: true }),
+          })
+          if (!res.ok) throw new Error('auth failed')
+          const data = await res.json()
+          setToken(data.token)
+          setProfile(data.user)
+          if (data.user && !data.user.usernameConfirmed) setShowUsernamePopup(true)
+        } catch {
+          toast.error('Authentication failed. Redirecting…')
+          router.push('/')
+        }
+      }
+    }
+    if (sessionStatus !== 'loading') resolveToken()
+  }, [session, sessionStatus, router])
+
+  useEffect(() => {
+    if (sessionStatus === 'loading') return
+    const guestToken = sessionStorage.getItem('guestToken')
+    if (!session && !guestToken) router.push('/')
+  }, [session, sessionStatus, router])
+
+  // Honor the "video" intent set from the homepage video-chat CTA.
+  useEffect(() => {
+    if (sessionStorage.getItem('chatIntent') === 'video') {
+      setChatType('video')
+      sessionStorage.removeItem('chatIntent')
+    }
+  }, [])
+
+  const {
+    status, messages, roomId, initiator, activeChatType,
+    joinQueue, sendMessage, skip, stop, sendSignal, setSignalHandler,
+  } = useSocket(token)
+
+  const isMatched = status === 'matched'
+  const isVideo = chatType === 'video'
+  const videoSession = isVideo && started
+
+  const webrtc = useWebRTC({
+    mediaActive: videoSession,
+    peerActive: isMatched && activeChatType === 'video',
+    initiator,
+    sendSignal,
+    setSignalHandler,
+  })
+
+  const videoJoinedRef = useRef(false)
+  useEffect(() => {
+    if (!videoSession) { videoJoinedRef.current = false; return }
+    if (webrtc.mediaReady && status === 'idle' && !videoJoinedRef.current) {
+      videoJoinedRef.current = true
+      joinQueue(interests, mode, 'video')
+    }
+  }, [videoSession, webrtc.mediaReady, status, interests, mode, joinQueue])
+
+  function handleStart() {
+    setStarted(true)
+    if (chatType === 'text') joinQueue(interests, mode, 'text')
+  }
+  function handleSkip() { skip(); joinQueue(interests, mode, chatType) }
+  function handleStop() { stop(); setStarted(false) }
+
+  const isSearching = status === 'searching'
+  const isIdle = status === 'idle' || status === 'disconnected'
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <Header />
+
+      <main className="flex flex-1 flex-col pt-16">
+        <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 px-4 py-6">
+
+          {/* Status bar (matched) */}
+          {isMatched && (
+            <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-2.5">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="font-medium text-foreground">Connected{isVideo ? ' · Video' : ''}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={handleSkip} className="btn-outline px-3 py-1 text-sm">Skip</button>
+                <button onClick={handleStop} className="btn-outline px-3 py-1 text-sm">Stop</button>
+                <button onClick={() => setShowReport(true)} className="btn-outline px-3 py-1 text-sm">Report</button>
+              </div>
+            </div>
+          )}
+
+          {/* Status bar (disconnected) */}
+          {status === 'disconnected' && (
+            <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-2.5">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="h-2 w-2 rounded-full bg-destructive" />
+                <span className="text-muted-foreground">Stranger disconnected</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={handleSkip} className="btn px-4 py-1.5 text-sm">Find new stranger</button>
+                <button onClick={handleStop} className="btn-outline px-4 py-1.5 text-sm">Stop</button>
+              </div>
+            </div>
+          )}
+
+          {/* Main area */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card"
+            style={{ minHeight: '60vh' }}>
+
+            {/* Pre-chat setup */}
+            {!started && isIdle && (
+              <div className="flex h-full flex-col items-center justify-center gap-8 p-6">
+                <div className="w-full max-w-sm space-y-6">
+                  <div className="text-center">
+                    <h2 className="mb-1 text-2xl font-semibold tracking-tight">Start a conversation</h2>
+                    <p className="text-sm text-muted-foreground">Choose how you want to connect</p>
+                  </div>
+
+                  {/* Chat type */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {([['text', MessageSquare], ['video', Video]] as const).map(([t, Icon]) => (
+                      <button key={t} onClick={() => setChatType(t)}
+                        className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-all duration-200 ease-out active:scale-[0.97]
+                          ${chatType === t
+                            ? 'border-primary bg-primary/5 text-foreground shadow-md shadow-primary/10'
+                            : 'border-border text-muted-foreground hover:-translate-y-0.5 hover:bg-muted hover:text-foreground'}`}>
+                        <Icon size={22} />
+                        <span className="text-sm font-medium capitalize">{t} chat</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Mode */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {([['random', Shuffle], ['interests', Target]] as const).map(([m, Icon]) => (
+                      <button key={m} onClick={() => setMode(m)}
+                        className={`flex items-center justify-center gap-2 rounded-lg border py-2.5 text-sm font-medium capitalize transition-all duration-200 ease-out active:scale-[0.97]
+                          ${mode === m
+                            ? 'border-primary bg-primary/5 text-foreground'
+                            : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+                        <Icon size={16} />
+                        {m === 'random' ? 'Random' : 'Interests'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {mode === 'interests' && (
+                    <div>
+                      <p className="mb-2 text-sm text-muted-foreground">Your interests:</p>
+                      <InterestTags value={interests} onChange={setInterests} />
+                    </div>
+                  )}
+
+                  <button onClick={handleStart} className="btn w-full py-3 text-base">
+                    Start {chatType === 'video' ? 'video ' : ''}chat
+                  </button>
+
+                  {chatType === 'video' && (
+                    <p className="text-center text-xs text-muted-foreground">
+                      We&apos;ll turn on your camera first, then find you a match.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* TEXT flow */}
+            {started && !videoSession && isSearching && <MatchingScreen onCancel={handleStop} />}
+            {started && !videoSession && (isMatched || status === 'disconnected') && (
+              <ChatBox messages={messages} onSend={sendMessage} disabled={status !== 'matched'} />
+            )}
+
+            {/* VIDEO flow */}
+            {videoSession && (
+              <VideoChat
+                localVideoRef={webrtc.localVideoRef}
+                remoteVideoRef={webrtc.remoteVideoRef}
+                mediaReady={webrtc.mediaReady}
+                mediaError={webrtc.mediaError}
+                onRetryMedia={webrtc.retryMedia}
+                connState={webrtc.connState}
+                searching={status !== 'matched' && status !== 'disconnected'}
+                partnerLeft={status === 'disconnected'}
+                muted={webrtc.muted}
+                cameraOff={webrtc.cameraOff}
+                onToggleMute={webrtc.toggleMute}
+                onToggleCamera={webrtc.toggleCamera}
+                messages={messages}
+                onSend={sendMessage}
+                chatDisabled={status !== 'matched'}
+              />
+            )}
+          </div>
+        </div>
+      </main>
+
+      {showReport && <ReportModal roomId={roomId} onClose={() => setShowReport(false)} token={token} />}
+
+      {showUsernamePopup && token && profile && (
+        <UsernamePopup
+          token={token}
+          initialUsername={profile.username}
+          onDone={(finalUsername) => {
+            setProfile(p => (p ? { ...p, username: finalUsername, usernameConfirmed: true } : p))
+            setShowUsernamePopup(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
