@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Message, ChatStatus, ChatType, SignalMessage, ReplyRef } from '@/types'
 import { nanoid } from '@/lib/nanoid'
 import { wsUrl } from '@/lib/ws'
+import { playMatchSound, playMessageSound } from '@/lib/sounds'
 
 interface OutMsg {
   type: string
@@ -26,6 +27,9 @@ export function useSocket(token: string | null) {
   const signalBufferRef = useRef<SignalMessage[]>([])
   // Outgoing messages queued while the socket is still connecting.
   const pendingSendsRef = useRef<object[]>([])
+  const statusRef = useRef<ChatStatus>('idle')
+  const activeChatTypeRef = useRef<ChatType>('text')
+  const wantQueueRef = useRef<{ interests: string[]; mode: 'random' | 'interests'; chatType: ChatType } | null>(null)
   const [status, setStatus] = useState<ChatStatus>('idle')
   const [messages, setMessages] = useState<Message[]>([])
   const [roomId, setRoomId] = useState<string | null>(null)
@@ -33,22 +37,56 @@ export function useSocket(token: string | null) {
   const [activeChatType, setActiveChatType] = useState<ChatType>('text')
   const [partnerTyping, setPartnerTyping] = useState(false)
 
+  // Keep a ref in sync so socket callbacks can read the latest status.
+  useEffect(() => { statusRef.current = status }, [status])
+
   useEffect(() => {
     if (!token) return
+    const wsToken = token
 
-    const url = `${wsUrl('/ws')}?token=${encodeURIComponent(token)}`
-    const ws = new WebSocket(url)
-    wsRef.current = ws
+    let closedByUs = false
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+    let keepAlive: ReturnType<typeof setInterval> | undefined
 
-    ws.onopen = () => {
-      // Flush anything queued before the connection was ready (e.g. the video
-      // flow auto-joins the queue as soon as the camera is up).
-      const pending = pendingSendsRef.current
-      pendingSendsRef.current = []
-      pending.forEach(p => ws.send(JSON.stringify(p)))
-    }
+    function connect() {
+      const url = `${wsUrl('/ws')}?token=${encodeURIComponent(wsToken)}`
+      const ws = new WebSocket(url)
+      wsRef.current = ws
 
-    ws.onmessage = (event) => {
+      ws.onopen = () => {
+        // Flush anything queued before the connection was ready (e.g. the video
+        // flow auto-joins the queue as soon as the camera is up).
+        const pending = pendingSendsRef.current
+        pendingSendsRef.current = []
+        pending.forEach(p => ws.send(JSON.stringify(p)))
+
+        // If we reconnected while searching, the old server-side queue entry is
+        // gone — re-join so we stay matchable.
+        if (statusRef.current === 'searching' && wantQueueRef.current) {
+          ws.send(JSON.stringify({ type: 'join_queue', ...wantQueueRef.current }))
+        }
+
+        // App-level keepalive: refreshes the server read deadline and keeps the
+        // connection alive through idle proxy timeouts.
+        clearInterval(keepAlive)
+        keepAlive = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }))
+        }, 25000)
+      }
+
+      ws.onclose = () => {
+        wsRef.current = null
+        clearInterval(keepAlive)
+        if (closedByUs) return
+        // Surface a dropped active match, then reconnect (and rejoin if searching).
+        if (statusRef.current === 'matched') {
+          setStatus('disconnected')
+          setRoomId(null)
+        }
+        reconnectTimer = setTimeout(connect, 1500)
+      }
+
+      ws.onmessage = (event) => {
       let msg: OutMsg
       try { msg = JSON.parse(event.data) } catch { return }
 
@@ -65,13 +103,17 @@ export function useSocket(token: string | null) {
         case 'matched':
           setRoomId(msg.roomId ?? null)
           setInitiator(Boolean(msg.initiator))
+          activeChatTypeRef.current = msg.chatType ?? 'text'
           setActiveChatType(msg.chatType ?? 'text')
           setStatus('matched')
           setMessages([])
           setPartnerTyping(false)
+          playMatchSound() // chime on match (text + video)
           break
         case 'message':
           setPartnerTyping(false)
+          // Message blip only in text chat mode (not video).
+          if (activeChatTypeRef.current !== 'video') playMessageSound()
           setMessages(prev => [
             ...prev,
             {
@@ -105,14 +147,16 @@ export function useSocket(token: string | null) {
           setPartnerTyping(false)
           break
       }
+      }
     }
 
-    ws.onclose = () => {
-      wsRef.current = null
-    }
+    connect()
 
     return () => {
-      ws.close()
+      closedByUs = true
+      clearTimeout(reconnectTimer)
+      clearInterval(keepAlive)
+      wsRef.current?.close()
       wsRef.current = null
       pendingSendsRef.current = []
     }
@@ -129,6 +173,7 @@ export function useSocket(token: string | null) {
   }, [])
 
   const joinQueue = useCallback((interests: string[], mode: 'random' | 'interests', chatType: ChatType) => {
+    wantQueueRef.current = { interests, mode, chatType }
     setMessages([])
     setStatus('searching')
     send({ type: 'join_queue', interests, mode, chatType })
@@ -149,6 +194,7 @@ export function useSocket(token: string | null) {
   }, [send, status])
 
   const skip = useCallback(() => {
+    wantQueueRef.current = null
     send({ type: 'skip' })
     setStatus('idle')
     setRoomId(null)

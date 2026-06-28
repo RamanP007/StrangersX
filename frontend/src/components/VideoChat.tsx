@@ -43,11 +43,11 @@ export function VideoChat({
   messages, onSend, onTyping, partnerTyping, chatDisabled,
 }: Props) {
   return (
-    <div className="flex h-full flex-col">
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 p-2 lg:grid-cols-2">
+    <div className="flex h-full flex-col lg:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 p-2 lg:flex-row">
 
         {/* LEFT — self */}
-        <div className="relative min-h-[30vh] overflow-hidden rounded-xl border border-border bg-muted lg:min-h-0">
+        <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-muted">
           {/* Mirrored like a phone's front camera */}
           <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full -scale-x-100 object-cover" />
           <span className="absolute left-3 top-3 z-10 rounded-full border border-border bg-background/70 px-2.5 py-1 text-xs font-medium backdrop-blur">
@@ -87,7 +87,7 @@ export function VideoChat({
         </div>
 
         {/* RIGHT — stranger */}
-        <div className="relative min-h-[30vh] overflow-hidden rounded-xl border border-border bg-muted lg:min-h-0">
+        <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-muted">
           <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
           <span className="absolute left-3 top-3 z-10 rounded-full border border-border bg-background/70 px-2.5 py-1 text-xs font-medium backdrop-blur">
             Stranger
@@ -115,8 +115,8 @@ export function VideoChat({
         </div>
       </div>
 
-      {/* Bottom text chat */}
-      <div className="flex h-44 flex-col border-t border-border">
+      {/* Text chat — below on mobile, right sidebar on desktop/tablet */}
+      <div className="flex h-[38vh] flex-col border-t border-border lg:h-auto lg:w-[360px] lg:flex-shrink-0 lg:border-l lg:border-t-0">
         <ChatBox
           messages={messages}
           onSend={onSend}

@@ -18,6 +18,7 @@ func main() {
 	services.ConnectMongo(config.App.MongoURI)
 	services.ConnectRedis(config.App.RedisURI)
 	services.ResetOnlineCount()
+	services.ResetMatchmaking()
 
 	r := gin.Default()
 	r.Use(middleware.CORS())

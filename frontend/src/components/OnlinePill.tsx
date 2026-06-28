@@ -2,7 +2,7 @@
 
 import { useOnlineCount } from '@/hooks/useOnlineCount'
 
-export function OnlinePill() {
+export function OnlinePill({ compact = false }: { compact?: boolean }) {
   const { count, ready } = useOnlineCount()
 
   return (
@@ -19,7 +19,7 @@ export function OnlinePill() {
       <span className="font-semibold tabular-nums text-foreground">
         {ready ? count.toLocaleString() : '—'}
       </span>
-      <span className="text-muted-foreground">Live</span>
+      {!compact && <span className="text-muted-foreground">Live</span>}
     </div>
   )
 }

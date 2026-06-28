@@ -127,6 +127,12 @@ export const Send = (p: IconProps) => (
   </svg>
 )
 
+export const Menu = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4 6h16M4 12h16M4 18h16" />
+  </svg>
+)
+
 export const Smile = (p: IconProps) => (
   <svg {...base(p)}>
     <circle cx="12" cy="12" r="9" />

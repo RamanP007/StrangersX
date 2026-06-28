@@ -11,6 +11,30 @@ const (
 	roomTTL = time.Hour
 )
 
+// ResetMatchmaking clears stale queue and room state left in Redis from a
+// previous run (those sockets are gone after a restart), so new users aren't
+// blocked by dead entries.
+func ResetMatchmaking() {
+	ctx := context.Background()
+	patterns := []string{"queue:random:*", "queue:interests:*", "room:*", "socket:room:*"}
+	for _, p := range patterns {
+		var cursor uint64
+		for {
+			keys, cur, err := RDB.Scan(ctx, cursor, p, 200).Result()
+			if err != nil {
+				break
+			}
+			if len(keys) > 0 {
+				RDB.Del(ctx, keys...)
+			}
+			cursor = cur
+			if cursor == 0 {
+				break
+			}
+		}
+	}
+}
+
 func randomQueueKey(chatType string) string {
 	return "queue:random:" + chatType
 }
