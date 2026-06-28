@@ -127,6 +127,21 @@ export const Send = (p: IconProps) => (
   </svg>
 )
 
+export const Smile = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+    <path d="M9 9h.01M15 9h.01" />
+  </svg>
+)
+
+export const Reply = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M9 14 4 9l5-5" />
+    <path d="M4 9h7a6 6 0 0 1 6 6v3" />
+  </svg>
+)
+
 export const Check = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M20 6 9 17l-5-5" />

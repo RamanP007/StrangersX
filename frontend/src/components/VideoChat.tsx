@@ -2,7 +2,7 @@
 
 import type { RefObject } from 'react'
 import type { RTCConnState } from '@/hooks/useWebRTC'
-import type { Message } from '@/types'
+import type { Message, ReplyRef } from '@/types'
 import { ChatBox } from './ChatBox'
 import { Sonar } from './Sonar'
 import { Mic, MicOff, Video, VideoOff } from './icons'
@@ -21,7 +21,9 @@ interface Props {
   onToggleMute: () => void
   onToggleCamera: () => void
   messages: Message[]
-  onSend: (text: string) => void
+  onSend: (text: string, reply?: ReplyRef) => void
+  onTyping?: (isTyping: boolean) => void
+  partnerTyping?: boolean
   chatDisabled: boolean
 }
 
@@ -38,7 +40,7 @@ export function VideoChat({
   mediaReady, mediaError, onRetryMedia,
   connState, searching, partnerLeft,
   muted, cameraOff, onToggleMute, onToggleCamera,
-  messages, onSend, chatDisabled,
+  messages, onSend, onTyping, partnerTyping, chatDisabled,
 }: Props) {
   return (
     <div className="flex h-full flex-col">
@@ -115,7 +117,13 @@ export function VideoChat({
 
       {/* Bottom text chat */}
       <div className="flex h-44 flex-col border-t border-border">
-        <ChatBox messages={messages} onSend={onSend} disabled={chatDisabled} />
+        <ChatBox
+          messages={messages}
+          onSend={onSend}
+          onTyping={onTyping}
+          partnerTyping={partnerTyping}
+          disabled={chatDisabled}
+        />
       </div>
     </div>
   )

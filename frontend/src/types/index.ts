@@ -10,11 +10,17 @@ export interface User {
   termsAndConditionAccepted: boolean
 }
 
+export interface ReplyRef {
+  text: string
+  mine: boolean // is the quoted message the local user's own?
+}
+
 export interface Message {
   id: string
   text: string
   from: 'me' | 'stranger'
   timestamp: Date
+  reply?: ReplyRef
 }
 
 export type ChatStatus =

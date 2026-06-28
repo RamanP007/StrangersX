@@ -257,6 +257,18 @@
   .bgfx-cursor { transition: none; }
 }
 
+/* ── Typing indicator dots ─────────────────────────────────────────────────── */
+.typing-dot {
+  animation: typing-bounce 1.2s infinite ease-in-out;
+}
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30%           { transform: translateY(-4px); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .typing-dot { animation: typing-bounce 2s infinite ease-in-out; }
+}
+
 /* ── Theme switching ───────────────────────────────────────────────────────── */
 /* Fallback (no View Transitions): smoothly cross-fade every color. */
 .theme-transition,

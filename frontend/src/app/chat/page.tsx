@@ -55,8 +55,8 @@ export default function ChatPage() {
   }, [])
 
   const {
-    status, messages, roomId, initiator, activeChatType,
-    joinQueue, sendMessage, skip, stop, sendSignal, setSignalHandler,
+    status, messages, roomId, initiator, activeChatType, partnerTyping,
+    joinQueue, sendMessage, sendTyping, skip, stop, sendSignal, setSignalHandler,
   } = useSocket(token)
 
   const isMatched = status === 'matched'
@@ -190,7 +190,13 @@ export default function ChatPage() {
             {/* TEXT flow */}
             {started && !videoSession && isSearching && <MatchingScreen onCancel={handleStop} />}
             {started && !videoSession && (isMatched || status === 'disconnected') && (
-              <ChatBox messages={messages} onSend={sendMessage} disabled={status !== 'matched'} />
+              <ChatBox
+                messages={messages}
+                onSend={sendMessage}
+                onTyping={sendTyping}
+                partnerTyping={partnerTyping}
+                disabled={status !== 'matched'}
+              />
             )}
 
             {/* VIDEO flow */}
@@ -210,6 +216,8 @@ export default function ChatPage() {
                 onToggleCamera={webrtc.toggleCamera}
                 messages={messages}
                 onSend={sendMessage}
+                onTyping={sendTyping}
+                partnerTyping={partnerTyping}
                 chatDisabled={status !== 'matched'}
               />
             )}

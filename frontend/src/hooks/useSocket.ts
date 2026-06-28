@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useCallback, useState } from 'react'
-import type { Message, ChatStatus, ChatType, SignalMessage } from '@/types'
+import type { Message, ChatStatus, ChatType, SignalMessage, ReplyRef } from '@/types'
 import { nanoid } from '@/lib/nanoid'
 import { wsUrl } from '@/lib/ws'
 
@@ -13,6 +13,8 @@ interface OutMsg {
   status?: string
   chatType?: ChatType
   initiator?: boolean
+  replyText?: string
+  replyMine?: boolean
   data?: any
 }
 
@@ -22,11 +24,14 @@ export function useSocket(token: string | null) {
   const wsRef = useRef<WebSocket | null>(null)
   const signalHandlerRef = useRef<SignalHandler | null>(null)
   const signalBufferRef = useRef<SignalMessage[]>([])
+  // Outgoing messages queued while the socket is still connecting.
+  const pendingSendsRef = useRef<object[]>([])
   const [status, setStatus] = useState<ChatStatus>('idle')
   const [messages, setMessages] = useState<Message[]>([])
   const [roomId, setRoomId] = useState<string | null>(null)
   const [initiator, setInitiator] = useState(false)
   const [activeChatType, setActiveChatType] = useState<ChatType>('text')
+  const [partnerTyping, setPartnerTyping] = useState(false)
 
   useEffect(() => {
     if (!token) return
@@ -34,6 +39,14 @@ export function useSocket(token: string | null) {
     const url = `${wsUrl('/ws')}?token=${encodeURIComponent(token)}`
     const ws = new WebSocket(url)
     wsRef.current = ws
+
+    ws.onopen = () => {
+      // Flush anything queued before the connection was ready (e.g. the video
+      // flow auto-joins the queue as soon as the camera is up).
+      const pending = pendingSendsRef.current
+      pendingSendsRef.current = []
+      pending.forEach(p => ws.send(JSON.stringify(p)))
+    }
 
     ws.onmessage = (event) => {
       let msg: OutMsg
@@ -55,16 +68,32 @@ export function useSocket(token: string | null) {
           setActiveChatType(msg.chatType ?? 'text')
           setStatus('matched')
           setMessages([])
+          setPartnerTyping(false)
           break
         case 'message':
+          setPartnerTyping(false)
           setMessages(prev => [
             ...prev,
-            { id: nanoid(), text: msg.text!, from: 'stranger', timestamp: new Date() },
+            {
+              id: nanoid(),
+              text: msg.text!,
+              from: 'stranger',
+              timestamp: new Date(),
+              // The sender's replyMine is from their POV; flip it for us.
+              reply: msg.replyText ? { text: msg.replyText, mine: !msg.replyMine } : undefined,
+            },
           ])
+          break
+        case 'typing':
+          setPartnerTyping(true)
+          break
+        case 'stop_typing':
+          setPartnerTyping(false)
           break
         case 'partner_left':
           setStatus('disconnected')
           setRoomId(null)
+          setPartnerTyping(false)
           break
         case 'queued':
           setStatus('searching')
@@ -73,6 +102,7 @@ export function useSocket(token: string | null) {
           setStatus('idle')
           setRoomId(null)
           setMessages([])
+          setPartnerTyping(false)
           break
       }
     }
@@ -84,12 +114,17 @@ export function useSocket(token: string | null) {
     return () => {
       ws.close()
       wsRef.current = null
+      pendingSendsRef.current = []
     }
   }, [token])
 
   const send = useCallback((payload: object) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(payload))
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(payload))
+    } else {
+      // Not open yet — queue it; ws.onopen will flush.
+      pendingSendsRef.current.push(payload)
     }
   }, [])
 
@@ -99,13 +134,18 @@ export function useSocket(token: string | null) {
     send({ type: 'join_queue', interests, mode, chatType })
   }, [send])
 
-  const sendMessage = useCallback((text: string) => {
+  const sendMessage = useCallback((text: string, reply?: ReplyRef) => {
     if (status !== 'matched') return
-    send({ type: 'message', text })
+    send({ type: 'message', text, replyText: reply?.text, replyMine: reply?.mine })
     setMessages(prev => [
       ...prev,
-      { id: nanoid(), text, from: 'me', timestamp: new Date() },
+      { id: nanoid(), text, from: 'me', timestamp: new Date(), reply },
     ])
+  }, [send, status])
+
+  const sendTyping = useCallback((isTyping: boolean) => {
+    if (status !== 'matched') return
+    send({ type: isTyping ? 'typing' : 'stop_typing' })
   }, [send, status])
 
   const skip = useCallback(() => {
@@ -132,8 +172,8 @@ export function useSocket(token: string | null) {
   }, [])
 
   return {
-    status, messages, roomId, initiator, activeChatType,
-    joinQueue, sendMessage, skip, stop,
+    status, messages, roomId, initiator, activeChatType, partnerTyping,
+    joinQueue, sendMessage, sendTyping, skip, stop,
     sendSignal, setSignalHandler,
   }
 }

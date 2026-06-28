@@ -16,12 +16,14 @@ import (
 // ─── Message protocol ────────────────────────────────────────────────────────
 
 type InMsg struct {
-	Type      string          `json:"type"` // join_queue | message | skip | ping | webrtc_*
+	Type      string          `json:"type"` // join_queue | message | skip | typing | stop_typing | ping | webrtc_*
 	Text      string          `json:"text"`
 	Interests []string        `json:"interests"`
-	Mode      string          `json:"mode"`     // random | interests
-	ChatType  string          `json:"chatType"` // text | video
-	Data      json.RawMessage `json:"data"`     // opaque WebRTC payload (SDP / ICE)
+	Mode      string          `json:"mode"`      // random | interests
+	ChatType  string          `json:"chatType"`  // text | video
+	ReplyText string          `json:"replyText"` // quoted message (reply)
+	ReplyMine bool            `json:"replyMine"` // was the quoted message sent by the sender?
+	Data      json.RawMessage `json:"data"`      // opaque WebRTC payload (SDP / ICE)
 }
 
 type OutMsg struct {
@@ -32,6 +34,8 @@ type OutMsg struct {
 	Status    string          `json:"status,omitempty"`
 	ChatType  string          `json:"chatType,omitempty"`
 	Initiator bool            `json:"initiator,omitempty"`
+	ReplyText string          `json:"replyText,omitempty"`
+	ReplyMine bool            `json:"replyMine,omitempty"`
 	Data      json.RawMessage `json:"data,omitempty"`
 }
 
@@ -209,7 +213,19 @@ func (c *Client) handle(ctx context.Context, msg InMsg) {
 		}
 
 	case "message":
-		c.relayToPartner(ctx, OutMsg{Type: "message", Text: msg.Text, From: "stranger"})
+		c.relayToPartner(ctx, OutMsg{
+			Type:      "message",
+			Text:      msg.Text,
+			From:      "stranger",
+			ReplyText: msg.ReplyText,
+			ReplyMine: msg.ReplyMine,
+		})
+
+	case "typing":
+		c.relayToPartner(ctx, OutMsg{Type: "typing"})
+
+	case "stop_typing":
+		c.relayToPartner(ctx, OutMsg{Type: "stop_typing"})
 
 	case "webrtc_offer", "webrtc_answer", "webrtc_ice":
 		// Forward the opaque SDP/ICE payload to the room partner.
