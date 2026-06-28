@@ -6,6 +6,7 @@ import { Toaster } from 'react-hot-toast'
 import { BackendAuthProvider } from './BackendAuthProvider'
 import { TermsGate } from './TermsGate'
 import { AppLoadingScreen } from './AppLoadingScreen'
+import { SessionGuard } from './SessionGuard'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -14,6 +15,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <BackendAuthProvider>
           {children}
           <AppLoadingScreen />
+          <SessionGuard />
           <TermsGate />
           <Toaster
             position="top-right"

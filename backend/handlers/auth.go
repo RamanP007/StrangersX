@@ -121,23 +121,27 @@ func GoogleAuth(c *gin.Context) {
 		_ = collection.FindOneAndUpdate(ctx, filter, backfill, opts).Decode(&user)
 	}
 
-	tokenStr, err := issueJWT(user.ID.Hex(), info.Email)
+	// One active session per user. The session id is derived from the Google
+	// token, so the same browser/login shares it across tabs, but a new
+	// device/login supersedes the previous one.
+	sid := services.SessionID(req.IDToken)
+	tokenStr, err := issueJWT(user.ID.Hex(), info.Email, sid)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "token generation failed"})
 		return
 	}
-	if err := services.StoreJWTSession(user.ID.Hex(), tokenStr); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "session error"})
-		return
-	}
+	services.SetActiveSession(user.ID.Hex(), sid)
+	services.AccountRegistry.ForceLogoutOthers(user.ID.Hex(), sid)
+	_ = services.StoreJWTSession(user.ID.Hex(), tokenStr)
 
 	c.JSON(http.StatusOK, gin.H{"token": tokenStr, "user": user})
 }
 
-func issueJWT(userID, email string) (string, error) {
+func issueJWT(userID, email, sid string) (string, error) {
 	claims := middleware.Claims{
 		UserID:  userID,
 		Email:   email,
+		SID:     sid,
 		IsGuest: false,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),

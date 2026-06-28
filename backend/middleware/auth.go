@@ -11,9 +11,10 @@ import (
 )
 
 type Claims struct {
-	UserID   string `json:"userId"`
-	Email    string `json:"email"`
-	IsGuest  bool   `json:"isGuest"`
+	UserID  string `json:"userId"`
+	Email   string `json:"email"`
+	SID     string `json:"sid"` // session id (one active session per user)
+	IsGuest bool   `json:"isGuest"`
 	jwt.RegisteredClaims
 }
 

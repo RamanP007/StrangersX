@@ -90,6 +90,14 @@ export default function ChatPage() {
     }
   }, [videoSession, webrtc.mediaReady, status, interests, mode, joinQueue])
 
+  // Auto-find a new stranger shortly after the current one disconnects.
+  useEffect(() => {
+    if (status === 'disconnected' && started) {
+      const t = setTimeout(() => joinQueue(interests, mode, chatType), 700)
+      return () => clearTimeout(t)
+    }
+  }, [status, started, joinQueue, interests, mode, chatType])
+
   function handleStart() {
     setStarted(true)
     if (chatType === 'text') joinQueue(interests, mode, 'text')

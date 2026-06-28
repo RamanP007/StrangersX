@@ -30,6 +30,9 @@ func main() {
 	r.GET("/ws/presence", func(c *gin.Context) {
 		services.ServePresence(c.Writer, c.Request)
 	})
+	r.GET("/ws/account", func(c *gin.Context) {
+		services.ServeAccount(c.Writer, c.Request)
+	})
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
