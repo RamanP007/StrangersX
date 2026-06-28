@@ -5,6 +5,7 @@ import { ThemeProvider } from 'next-themes'
 import { Toaster } from 'react-hot-toast'
 import { BackendAuthProvider } from './BackendAuthProvider'
 import { TermsGate } from './TermsGate'
+import { AppLoadingScreen } from './AppLoadingScreen'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -12,6 +13,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <SessionProvider refetchOnWindowFocus={false}>
         <BackendAuthProvider>
           {children}
+          <AppLoadingScreen />
           <TermsGate />
           <Toaster
             position="top-right"

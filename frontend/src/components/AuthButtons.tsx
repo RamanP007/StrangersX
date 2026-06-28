@@ -12,7 +12,9 @@ function rememberIntent(intent?: Intent) {
   if (intent) sessionStorage.setItem('chatIntent', intent)
 }
 
-export function AuthButtons({ intent, stacked = false }: { intent?: Intent; stacked?: boolean } = {}) {
+export function AuthButtons(
+  { intent, stacked = false, googleOnly = false }: { intent?: Intent; stacked?: boolean; googleOnly?: boolean } = {},
+) {
   const router = useRouter()
   const { data: session } = useSession()
   const [loading, setLoading] = useState<'google' | 'guest' | null>(null)
@@ -75,11 +77,13 @@ export function AuthButtons({ intent, stacked = false }: { intent?: Intent; stac
         Sign in with Google
       </button>
 
-      <button onClick={handleGuest} disabled={loading !== null}
-        className={`btn-outline ${sizeClass}`}>
-        {loading === 'guest' ? <Spinner size={18} /> : null}
-        Chat as guest
-      </button>
+      {!googleOnly && (
+        <button onClick={handleGuest} disabled={loading !== null}
+          className={`btn-outline ${sizeClass}`}>
+          {loading === 'guest' ? <Spinner size={18} /> : null}
+          Chat as guest
+        </button>
+      )}
     </div>
   )
 }

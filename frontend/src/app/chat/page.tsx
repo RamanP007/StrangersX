@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useSession } from 'next-auth/react'
+import { useSession, signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { Header } from '@/components/Header'
 import { ChatBox } from '@/components/ChatBox'
@@ -13,7 +13,7 @@ import { UsernamePopup } from '@/components/UsernamePopup'
 import { useSocket } from '@/hooks/useSocket'
 import { useWebRTC } from '@/hooks/useWebRTC'
 import { useBackendAuth } from '@/components/BackendAuthProvider'
-import { MessageSquare, Video, Shuffle, Target } from '@/components/icons'
+import { MessageSquare, Video, Shuffle, Target, Lock } from '@/components/icons'
 import type { MatchMode, ChatType } from '@/types'
 
 export default function ChatPage() {
@@ -34,6 +34,9 @@ export default function ChatPage() {
   const token = authToken ?? guestToken
   const profile = authUser
 
+  // Video chat requires a signed-in (Google) account; guests get text only.
+  const isSignedIn = !!session?.user
+
   // Resolve the guest token immediately so the chat socket can connect without
   // waiting on the next-auth session request.
   useEffect(() => {
@@ -51,13 +54,15 @@ export default function ChatPage() {
     if (authUser && !authUser.usernameConfirmed) setShowUsernamePopup(true)
   }, [authUser])
 
-  // Honor the "video" intent set from the homepage video-chat CTA.
+  // Honor the "video" intent from the homepage CTA — but only for signed-in
+  // users (video is sign-in only).
   useEffect(() => {
+    if (sessionStatus === 'loading') return
     if (sessionStorage.getItem('chatIntent') === 'video') {
-      setChatType('video')
       sessionStorage.removeItem('chatIntent')
+      if (session?.user) setChatType('video')
     }
-  }, [])
+  }, [sessionStatus, session])
 
   const {
     status, messages, roomId, initiator, activeChatType, partnerTyping,
@@ -146,6 +151,8 @@ export default function ChatPage() {
                 mediaError={webrtc.mediaError}
                 onRetryMedia={webrtc.retryMedia}
                 connState={webrtc.connState}
+                quality={webrtc.quality}
+                latencyMs={webrtc.latencyMs}
                 searching={status !== 'matched' && status !== 'disconnected'}
                 partnerLeft={status === 'disconnected'}
                 muted={webrtc.muted}
@@ -207,16 +214,32 @@ export default function ChatPage() {
 
                     {/* Chat type */}
                     <div className="grid grid-cols-2 gap-3">
-                      {([['text', MessageSquare], ['video', Video]] as const).map(([t, Icon]) => (
-                        <button key={t} onClick={() => setChatType(t)}
-                          className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-all duration-200 ease-out active:scale-[0.97]
-                            ${chatType === t
-                              ? 'border-primary bg-primary/5 text-foreground shadow-md shadow-primary/10'
-                              : 'border-border text-muted-foreground hover:-translate-y-0.5 hover:bg-muted hover:text-foreground'}`}>
-                          <Icon size={22} />
-                          <span className="text-sm font-medium capitalize">{t} chat</span>
-                        </button>
-                      ))}
+                      {([['text', MessageSquare], ['video', Video]] as const).map(([t, Icon]) => {
+                        const locked = t === 'video' && !isSignedIn
+                        return (
+                          <button key={t}
+                            onClick={() => {
+                              if (locked) {
+                                sessionStorage.setItem('chatIntent', 'video')
+                                signIn('google', { callbackUrl: '/chat' })
+                                return
+                              }
+                              setChatType(t)
+                            }}
+                            className={`relative flex flex-col items-center gap-2 rounded-xl border p-4 transition-all duration-200 ease-out active:scale-[0.97]
+                              ${chatType === t
+                                ? 'border-primary bg-primary/5 text-foreground shadow-md shadow-primary/10'
+                                : 'border-border text-muted-foreground hover:-translate-y-0.5 hover:bg-muted hover:text-foreground'}`}>
+                            <Icon size={22} />
+                            <span className="text-sm font-medium capitalize">{t} chat</span>
+                            {locked && (
+                              <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                <Lock size={10} /> Sign in
+                              </span>
+                            )}
+                          </button>
+                        )
+                      })}
                     </div>
 
                     {/* Mode */}

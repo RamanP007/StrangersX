@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from 'next'
 import { Sora } from 'next/font/google'
 import './globals.css'
 import { Providers } from '@/components/Providers'
-import { AgeGate } from '@/components/AgeGate'
 import { BackgroundFX } from '@/components/BackgroundFX'
 import { siteConfig } from '@/lib/seo'
 
@@ -84,7 +83,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="font-sans antialiased">
         <BackgroundFX />
         <Providers>
-          <AgeGate />
           {children}
         </Providers>
       </body>

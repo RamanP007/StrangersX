@@ -59,8 +59,9 @@ export function VideoChatPromo() {
             </>
           ) : (
             <>
-              <p className="text-center text-sm font-medium">Sign up to start your video chat</p>
-              <AuthButtons intent="video" stacked />
+              <p className="text-center text-sm font-medium">Sign in to start your video chat</p>
+              <AuthButtons intent="video" stacked googleOnly />
+              <p className="text-center text-xs text-muted-foreground">Video chat requires a free account</p>
               <button onClick={() => setSignup(false)} className="text-xs text-muted-foreground hover:text-foreground">
                 Back
               </button>

@@ -31,6 +31,9 @@ export function useWebRTC({ mediaActive, peerActive, initiator, sendSignal, setS
   const [muted, setMuted] = useState(false)
   const [cameraOff, setCameraOff] = useState(false)
   const [retryTick, setRetryTick] = useState(0)
+  const [quality, setQuality] = useState<'good' | 'fair' | 'poor' | null>(null)
+  const [latencyMs, setLatencyMs] = useState<number | null>(null)
+  const prevLossRef = useRef<{ lost: number; recv: number }>({ lost: 0, recv: 0 })
 
   // Hard-stops the camera/mic and releases the device (turns off the camera light).
   const stopLocalMedia = useCallback(() => {
@@ -91,6 +94,8 @@ export function useWebRTC({ mediaActive, peerActive, initiator, sendSignal, setS
       pendingCandidates.current = []
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null
       setConnState('idle')
+      setQuality(null)
+      setLatencyMs(null)
       setSignalHandler(null)
       return
     }
@@ -161,7 +166,47 @@ export function useWebRTC({ mediaActive, peerActive, initiator, sendSignal, setS
       })()
     }
 
+    // Poll connection stats → RTT (latency) + packet loss → quality level.
+    prevLossRef.current = { lost: 0, recv: 0 }
+    const statsTimer = setInterval(async () => {
+      const peer = pcRef.current
+      if (!peer || peer.connectionState !== 'connected') return
+      let rtt: number | null = null
+      let lost = 0
+      let recv = 0
+      try {
+        const stats = await peer.getStats()
+        stats.forEach((r: any) => {
+          if (r.type === 'candidate-pair' && r.nominated && r.currentRoundTripTime != null) {
+            rtt = r.currentRoundTripTime * 1000
+          } else if (r.type === 'remote-inbound-rtp' && r.roundTripTime != null) {
+            rtt = r.roundTripTime * 1000
+          }
+          if (r.type === 'inbound-rtp' && r.kind === 'video') {
+            lost += r.packetsLost || 0
+            recv += r.packetsReceived || 0
+          }
+        })
+      } catch {
+        return
+      }
+
+      const prev = prevLossRef.current
+      const dLost = Math.max(0, lost - prev.lost)
+      const dRecv = Math.max(0, recv - prev.recv)
+      prevLossRef.current = { lost, recv }
+      const lossPct = dLost + dRecv > 0 ? (dLost / (dLost + dRecv)) * 100 : 0
+
+      let q: 'good' | 'fair' | 'poor' = 'good'
+      if ((rtt != null && rtt > 300) || lossPct > 5) q = 'poor'
+      else if ((rtt != null && rtt > 150) || lossPct > 2) q = 'fair'
+
+      setLatencyMs(rtt != null ? Math.round(rtt) : null)
+      setQuality(q)
+    }, 2000)
+
     return () => {
+      clearInterval(statsTimer)
       setSignalHandler(null)
       pc.onicecandidate = null
       pc.ontrack = null
@@ -171,6 +216,8 @@ export function useWebRTC({ mediaActive, peerActive, initiator, sendSignal, setS
       pendingCandidates.current = []
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null
       setConnState('idle')
+      setQuality(null)
+      setLatencyMs(null)
     }
   }, [peerActive, mediaReady, initiator, sendSignal, setSignalHandler])
 
@@ -189,7 +236,7 @@ export function useWebRTC({ mediaActive, peerActive, initiator, sendSignal, setS
   return {
     localVideoRef, remoteVideoRef,
     mediaReady, mediaError, retryMedia,
-    connState,
+    connState, quality, latencyMs,
     muted, cameraOff, toggleMute, toggleCamera,
   }
 }

@@ -269,6 +269,37 @@
   .typing-dot { animation: typing-bounce 2s infinite ease-in-out; }
 }
 
+/* ── App loading screen ────────────────────────────────────────────────────── */
+.loader-ring {
+  border-radius: 9999px;
+  -webkit-mask: radial-gradient(farthest-side, #0000 calc(100% - 4px), #000 calc(100% - 4px));
+  mask: radial-gradient(farthest-side, #0000 calc(100% - 4px), #000 calc(100% - 4px));
+}
+.loader-shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted-foreground)),
+    hsl(var(--foreground)) 35%,
+    hsl(var(--primary)) 50%,
+    hsl(var(--foreground)) 65%,
+    hsl(var(--muted-foreground))
+  );
+  background-size: 200% 100%;
+  background-position: -100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: loader-shimmer 2.2s linear infinite;
+}
+@keyframes loader-spin { to { transform: rotate(360deg); } }
+@keyframes loader-spin-rev { to { transform: rotate(-360deg); } }
+@keyframes loader-shimmer { to { background-position: 100% 0; } }
+@keyframes loader-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 6px 18px -6px hsl(var(--primary) / 0.55); }
+  50%      { transform: scale(1.08); box-shadow: 0 0 30px 2px hsl(var(--primary) / 0.7); }
+}
+
 /* ── Theme switching ───────────────────────────────────────────────────────── */
 /* Fallback (no View Transitions): smoothly cross-fade every color. */
 .theme-transition,
