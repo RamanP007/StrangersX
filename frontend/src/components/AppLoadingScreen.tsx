@@ -1,41 +1,43 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useBackendAuth } from './BackendAuthProvider'
+import { useSession } from 'next-auth/react'
 
 /**
- * Full-screen loading overlay shown until the initial auth state is resolved
- * (session + backend exchange). This hides the brief flash of the sign-in button
- * and the blank online count while those requests settle. Content still renders
- * underneath (good for SEO); the overlay just fades out when ready.
+ * Full-screen loading overlay shown only until the next-auth session resolves
+ * (which determines the header's signed-in/out state). This hides the brief
+ * flash of the sign-in button and blank online count. It does NOT wait on the
+ * slower backend token exchange — that continues in the background. Content
+ * renders underneath (good for SEO); the overlay just fades out when ready.
  */
 export function AppLoadingScreen() {
-  const { loading } = useBackendAuth()
+  const { status } = useSession()
+  const ready = status !== 'loading'
   const [minDone, setMinDone] = useState(false)
   const [fading, setFading] = useState(false)
   const [removed, setRemoved] = useState(false)
 
-  // Minimum on-screen time so it isn't a jarring flash.
+  // Small minimum so it isn't a jarring on/off flash.
   useEffect(() => {
-    const t = setTimeout(() => setMinDone(true), 700)
+    const t = setTimeout(() => setMinDone(true), 300)
     return () => clearTimeout(t)
   }, [])
 
   // Safety: never hang the loader.
   useEffect(() => {
-    const t = setTimeout(() => setFading(true), 7000)
+    const t = setTimeout(() => setFading(true), 3000)
     return () => clearTimeout(t)
   }, [])
 
-  // Fade out once everything is ready.
+  // Fade out as soon as the session is known.
   useEffect(() => {
-    if (!loading && minDone) setFading(true)
-  }, [loading, minDone])
+    if (ready && minDone) setFading(true)
+  }, [ready, minDone])
 
   // Remove from the DOM after the fade transition.
   useEffect(() => {
     if (!fading) return
-    const t = setTimeout(() => setRemoved(true), 600)
+    const t = setTimeout(() => setRemoved(true), 450)
     return () => clearTimeout(t)
   }, [fading])
 
@@ -44,7 +46,7 @@ export function AppLoadingScreen() {
   return (
     <div
       aria-hidden={fading}
-      className={`fixed inset-0 z-[200] flex items-center justify-center bg-background transition-opacity duration-500
+      className={`fixed inset-0 z-[200] flex items-center justify-center bg-background transition-opacity duration-300
         ${fading ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
     >
       <div className="relative flex flex-col items-center">

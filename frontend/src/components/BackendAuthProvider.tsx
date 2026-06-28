@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import type { User } from '@/types'
 
@@ -22,35 +22,79 @@ export function useBackendAuth() {
   return useContext(BackendAuthContext)
 }
 
+const CACHE_KEY = 'backendAuth'
+
+interface Cache { idToken: string; token: string; user: User }
+
+function readCache(idToken: string): Cache | null {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const c = JSON.parse(raw) as Cache
+    return c.idToken === idToken ? c : null
+  } catch {
+    return null
+  }
+}
+
+function writeCache(c: Cache) {
+  try { sessionStorage.setItem(CACHE_KEY, JSON.stringify(c)) } catch { /* ignore */ }
+}
+
 /**
  * Exchanges the Google ID token for a backend JWT + user **once** and shares it
- * app-wide via context. Previously chat, settings and the TermsGate each made
- * their own POST /api/auth/google call — this dedupes them to a single request
- * (and re-runs only when the underlying Google token actually changes).
+ * app-wide via context. The result is cached in sessionStorage (keyed by the
+ * Google token), so subsequent loads are instant instead of waiting on the
+ * backend's Google verification round-trip.
  */
 export function BackendAuthProvider({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession()
   const [token, setToken] = useState<string | null>(null)
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUserState] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
-  const lastIdToken = useRef<string | null>(null)
+  const processedRef = useRef<string | null>(null) // idToken we've started handling
+  const activeIdToken = useRef<string | null>(null) // the currently-valid idToken
+  const tokenRef = useRef<string | null>(null)
+
+  // setUser also refreshes the cache so profile/terms changes survive a reload.
+  const setUser = useCallback((u: User) => {
+    setUserState(u)
+    if (activeIdToken.current && tokenRef.current) {
+      writeCache({ idToken: activeIdToken.current, token: tokenRef.current, user: u })
+    }
+  }, [])
 
   useEffect(() => {
     if (status === 'loading') return
 
     const idToken = (session as any)?.idToken ?? null
+    activeIdToken.current = idToken
+
     if (!idToken) {
-      lastIdToken.current = null
+      processedRef.current = null
+      tokenRef.current = null
       setToken(null)
-      setUser(null)
+      setUserState(null)
       setLoading(false)
       return
     }
-    if (idToken === lastIdToken.current) return
-    lastIdToken.current = idToken
+
+    // Same token, already handled (e.g. session object re-created) — do nothing,
+    // so we never cancel an in-flight exchange and leave loading stuck.
+    if (processedRef.current === idToken) return
+    processedRef.current = idToken
+
+    // Cached exchange → instant.
+    const cached = readCache(idToken)
+    if (cached) {
+      tokenRef.current = cached.token
+      setToken(cached.token)
+      setUserState(cached.user)
+      setLoading(false)
+      return
+    }
 
     setLoading(true)
-    let cancelled = false
     ;(async () => {
       try {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/google`, {
@@ -60,21 +104,20 @@ export function BackendAuthProvider({ children }: { children: React.ReactNode })
         })
         if (!res.ok) throw new Error()
         const data = await res.json()
-        if (!cancelled) {
-          setToken(data.token)
-          setUser(data.user)
-        }
+        if (activeIdToken.current !== idToken) return // token changed meanwhile
+        tokenRef.current = data.token
+        setToken(data.token)
+        setUserState(data.user)
+        writeCache({ idToken, token: data.token, user: data.user })
       } catch {
-        if (!cancelled) {
-          setToken(null)
-          setUser(null)
-        }
+        if (activeIdToken.current !== idToken) return
+        tokenRef.current = null
+        setToken(null)
+        setUserState(null)
       } finally {
-        if (!cancelled) setLoading(false)
+        if (activeIdToken.current === idToken) setLoading(false)
       }
     })()
-
-    return () => { cancelled = true }
   }, [session, status])
 
   return (
