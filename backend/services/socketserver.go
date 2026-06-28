@@ -158,7 +158,10 @@ func (c *Client) readPump() {
 		c.conn.Close()
 	}()
 
-	c.conn.SetReadLimit(4096)
+	// WebRTC SDP offers/answers (audio+video) routinely exceed a few KB, so the
+	// limit must be well above the small text-message size or those messages get
+	// dropped and the connection is torn down.
+	c.conn.SetReadLimit(1 << 18) // 256 KB
 	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.conn.SetPongHandler(func(string) error {
 		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
