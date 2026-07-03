@@ -30,18 +30,30 @@ export default function ChatPage() {
   const [showReport, setShowReport] = useState(false)
   const [started, setStarted] = useState(false)
 
-  // Registered users use the shared backend JWT; guests use their session token.
-  const token = authToken ?? guestToken
   const profile = authUser
 
   // Video chat requires a signed-in (Google) account; guests get text only.
   const isSignedIn = !!session?.user
+
+  // Registered users use the shared backend JWT; guests use their session
+  // token. Never mix them: connecting first as guest and then flipping to the
+  // JWT would reuse a connection identity across different tokens, which the
+  // server rejects (chat socket would die in a reconnect loop).
+  const token = sessionStatus === 'loading' ? null : isSignedIn ? authToken : guestToken
 
   // Resolve the guest token immediately so the chat socket can connect without
   // waiting on the next-auth session request.
   useEffect(() => {
     setGuestToken(sessionStorage.getItem('guestToken'))
   }, [])
+
+  // Once signed in, drop any stale guest session left over in this tab.
+  useEffect(() => {
+    if (isSignedIn && authToken) {
+      sessionStorage.removeItem('guestToken')
+      setGuestToken(null)
+    }
+  }, [isSignedIn, authToken])
 
   // Redirect anonymous visitors home (once the session state is known).
   useEffect(() => {

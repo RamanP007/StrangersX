@@ -131,14 +131,17 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 		cid = uuid.New().String()
 	} else {
 		// Bind the id to the presenting token so another client can't hijack
-		// an in-progress chat by guessing the id.
+		// an in-progress chat by guessing the id. On a mismatch (different
+		// token reusing an id, e.g. after a guest→signed-in switch) don't kill
+		// the connection — just assign a fresh identity.
 		ownerKey := "conn:owner:" + cid
 		owner := SessionID(r.URL.Query().Get("token"))
 		if existing, err := RDB.Get(context.Background(), ownerKey).Result(); err == nil && existing != owner {
-			conn.Close()
-			return
+			log.Printf("cid %s presented with a different token — assigning fresh id", cid)
+			cid = uuid.New().String()
+		} else {
+			RDB.Set(context.Background(), ownerKey, owner, 24*time.Hour)
 		}
-		RDB.Set(context.Background(), ownerKey, owner, 24*time.Hour)
 	}
 
 	client := &Client{

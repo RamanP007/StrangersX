@@ -30,9 +30,6 @@ export function useSocket(token: string | null) {
   const statusRef = useRef<ChatStatus>('idle')
   const activeChatTypeRef = useRef<ChatType>('text')
   const wantQueueRef = useRef<{ interests: string[]; mode: 'random' | 'interests'; chatType: ChatType } | null>(null)
-  // Stable per-tab connection id: reused across reconnects so the server can
-  // resume an in-progress chat after a network blip.
-  const cidRef = useRef('')
   const attemptRef = useRef(0)
   const [status, setStatus] = useState<ChatStatus>('idle')
   const [messages, setMessages] = useState<Message[]>([])
@@ -49,19 +46,21 @@ export function useSocket(token: string | null) {
   useEffect(() => {
     if (!token) return
     const wsToken = token
-    if (!cidRef.current) {
-      cidRef.current =
-        typeof crypto !== 'undefined' && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`
-    }
+    // Connection id scoped to this token: reused across reconnects (so the
+    // server can resume an in-progress chat after a blip) but regenerated when
+    // the token changes — the server binds cid→token, so reusing a cid with a
+    // different token (e.g. guest → signed-in) would be rejected.
+    const cid =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`
 
     let closedByUs = false
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined
     let keepAlive: ReturnType<typeof setInterval> | undefined
 
     function connect() {
-      const url = `${wsUrl('/ws')}?token=${encodeURIComponent(wsToken)}&cid=${encodeURIComponent(cidRef.current)}`
+      const url = `${wsUrl('/ws')}?token=${encodeURIComponent(wsToken)}&cid=${encodeURIComponent(cid)}`
       const ws = new WebSocket(url)
       wsRef.current = ws
 
