@@ -69,7 +69,9 @@ func TryMatch(ctx context.Context, socketID string, interests []string, mode, ch
 	return "", false
 }
 
-// popLiveCandidate pops entries until it finds a live one that isn't self.
+// popLiveCandidate pops entries until it finds a live one that isn't self and
+// isn't already matched into a room (interest-mode users sit in several queues
+// at once; entries left in other queues after a match must be discarded).
 func popLiveCandidate(ctx context.Context, key, socketID string) (string, bool) {
 	for i := 0; i < 50; i++ {
 		val, err := RDB.LPop(ctx, key).Result()
@@ -78,6 +80,9 @@ func popLiveCandidate(ctx context.Context, key, socketID string) (string, bool) 
 		}
 		if val == socketID || !isLive(val) {
 			continue // skip self / stale entries
+		}
+		if _, inRoom := GetSocketRoom(ctx, val); inRoom {
+			continue // already matched via another queue entry
 		}
 		return val, true
 	}

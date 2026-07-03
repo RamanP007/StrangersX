@@ -66,6 +66,7 @@ export default function ChatPage() {
 
   const {
     status, messages, roomId, initiator, activeChatType, partnerTyping,
+    reconnecting, partnerReconnecting,
     joinQueue, sendMessage, sendTyping, skip, stop, sendSignal, setSignalHandler,
   } = useSocket(token)
 
@@ -120,10 +121,22 @@ export default function ChatPage() {
             <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
               <div className="flex items-center gap-2 text-sm">
                 {isMatched ? (
-                  <>
-                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                    <span className="font-medium text-foreground">Connected · Video</span>
-                  </>
+                  reconnecting ? (
+                    <>
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+                      <span className="text-muted-foreground">Reconnecting…</span>
+                    </>
+                  ) : partnerReconnecting ? (
+                    <>
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+                      <span className="text-muted-foreground">Stranger reconnecting…</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                      <span className="font-medium text-foreground">Connected · Video</span>
+                    </>
+                  )
                 ) : status === 'disconnected' ? (
                   <>
                     <span className="h-2 w-2 rounded-full bg-destructive" />
@@ -182,8 +195,22 @@ export default function ChatPage() {
             {isMatched && (
               <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-2.5">
                 <div className="flex items-center gap-2 text-sm">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  <span className="font-medium text-foreground">Connected</span>
+                  {reconnecting ? (
+                    <>
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+                      <span className="text-muted-foreground">Reconnecting…</span>
+                    </>
+                  ) : partnerReconnecting ? (
+                    <>
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+                      <span className="text-muted-foreground">Stranger reconnecting…</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                      <span className="font-medium text-foreground">Connected</span>
+                    </>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={handleSkip} className="btn-outline px-3 py-1 text-sm">Skip</button>

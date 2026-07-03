@@ -55,17 +55,28 @@ type Hub struct {
 
 var GlobalHub = &Hub{clients: make(map[string]*Client)}
 
-func (h *Hub) register(c *Client) {
+// register stores c as the live connection for its id and returns the previous
+// connection (if any) so the caller can close it — a reconnecting client reuses
+// its connection id, superseding the zombie socket left over from the blip.
+func (h *Hub) register(c *Client) *Client {
 	h.mu.Lock()
+	old := h.clients[c.id]
 	h.clients[c.id] = c
 	h.mu.Unlock()
+	return old
 }
 
-func (h *Hub) unregister(c *Client) {
+// unregisterIfCurrent removes c only if it is still the registered connection
+// for its id. Returns false when c was superseded by a reconnect, in which case
+// the caller must NOT tear down rooms/queues — the new connection owns them.
+func (h *Hub) unregisterIfCurrent(c *Client) bool {
 	h.mu.Lock()
-	delete(h.clients, c.id)
-	h.mu.Unlock()
-	close(c.send)
+	defer h.mu.Unlock()
+	if cur, ok := h.clients[c.id]; ok && cur == c {
+		delete(h.clients, c.id)
+		return true
+	}
+	return false
 }
 
 func (h *Hub) Send(clientID string, msg OutMsg) {
@@ -113,13 +124,32 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Stable client-supplied connection id: survives reconnects so an
+	// in-progress chat can be resumed after a network blip.
+	cid := r.URL.Query().Get("cid")
+	if cid == "" || len(cid) > 64 {
+		cid = uuid.New().String()
+	} else {
+		// Bind the id to the presenting token so another client can't hijack
+		// an in-progress chat by guessing the id.
+		ownerKey := "conn:owner:" + cid
+		owner := SessionID(r.URL.Query().Get("token"))
+		if existing, err := RDB.Get(context.Background(), ownerKey).Result(); err == nil && existing != owner {
+			conn.Close()
+			return
+		}
+		RDB.Set(context.Background(), ownerKey, owner, 24*time.Hour)
+	}
+
 	client := &Client{
-		id:   uuid.New().String(),
+		id:   cid,
 		hub:  GlobalHub,
 		conn: conn,
 		send: make(chan OutMsg, 64),
 	}
-	GlobalHub.register(client)
+	if old := GlobalHub.register(client); old != nil {
+		old.conn.Close() // supersede the zombie connection from before the blip
+	}
 
 	go client.writePump()
 	go client.readPump()
@@ -153,8 +183,12 @@ func (c *Client) writePump() {
 func (c *Client) readPump() {
 	ctx := context.Background()
 	defer func() {
-		c.handleDisconnect(ctx)
-		c.hub.unregister(c)
+		// Only a genuine disconnect (not a superseded pre-reconnect zombie)
+		// may start room-teardown; the reconnecting client keeps its state.
+		if c.hub.unregisterIfCurrent(c) {
+			c.handleDisconnect(ctx)
+		}
+		close(c.send)
 		c.conn.Close()
 	}()
 
@@ -239,6 +273,18 @@ func (c *Client) handle(ctx context.Context, msg InMsg) {
 		LeaveQueue(ctx, c.id)
 		c.hub.Send(c.id, OutMsg{Type: "skipped"})
 
+	case "resume":
+		// Client reconnected mid-chat: if its room survived the grace window,
+		// pick the conversation back up; otherwise tell it to move on.
+		if roomID, ok := GetSocketRoom(ctx, c.id); ok {
+			c.hub.Send(c.id, OutMsg{Type: "resumed", RoomID: roomID})
+			if partnerID, found := GetRoomPartner(ctx, roomID, c.id); found {
+				c.hub.Send(partnerID, OutMsg{Type: "partner_back"})
+			}
+		} else {
+			c.hub.Send(c.id, OutMsg{Type: "resume_failed"})
+		}
+
 	case "ping":
 		c.hub.Send(c.id, OutMsg{Type: "pong"})
 	}
@@ -271,8 +317,41 @@ func (c *Client) leaveCurrentRoom(ctx context.Context) {
 	ClearSocketRoom(ctx, c.id)
 }
 
+// resumeGrace is how long a mid-chat room survives a dropped connection before
+// being torn down — a reconnecting client resumes seamlessly within this window.
+const resumeGrace = 10 * time.Second
+
 func (c *Client) handleDisconnect(ctx context.Context) {
-	c.leaveCurrentRoom(ctx)
 	LeaveQueue(ctx, c.id)
-	log.Printf("ws disconnected: %s", c.id)
+
+	roomID, ok := GetSocketRoom(ctx, c.id)
+	if !ok {
+		log.Printf("ws disconnected: %s", c.id)
+		return
+	}
+
+	// Mid-chat: give the client a grace window to reconnect (network blip)
+	// instead of ending the conversation immediately.
+	if partnerID, found := GetRoomPartner(ctx, roomID, c.id); found {
+		c.hub.Send(partnerID, OutMsg{Type: "partner_reconnecting"})
+	}
+	log.Printf("ws dropped mid-chat: %s (grace %s)", c.id, resumeGrace)
+
+	id, hub := c.id, c.hub
+	time.AfterFunc(resumeGrace, func() {
+		bg := context.Background()
+		if isLive(id) {
+			return // they came back — room resumes
+		}
+		rid, ok := GetSocketRoom(bg, id)
+		if !ok || rid != roomID {
+			return // room already gone (partner skipped) or re-matched
+		}
+		if partnerID, found := GetRoomPartner(bg, rid, id); found {
+			hub.Send(partnerID, OutMsg{Type: "partner_left"})
+			ClearSocketRoom(bg, partnerID)
+		}
+		DeleteRoom(bg, rid)
+		ClearSocketRoom(bg, id)
+	})
 }

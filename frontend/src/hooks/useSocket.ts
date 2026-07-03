@@ -30,12 +30,18 @@ export function useSocket(token: string | null) {
   const statusRef = useRef<ChatStatus>('idle')
   const activeChatTypeRef = useRef<ChatType>('text')
   const wantQueueRef = useRef<{ interests: string[]; mode: 'random' | 'interests'; chatType: ChatType } | null>(null)
+  // Stable per-tab connection id: reused across reconnects so the server can
+  // resume an in-progress chat after a network blip.
+  const cidRef = useRef('')
+  const attemptRef = useRef(0)
   const [status, setStatus] = useState<ChatStatus>('idle')
   const [messages, setMessages] = useState<Message[]>([])
   const [roomId, setRoomId] = useState<string | null>(null)
   const [initiator, setInitiator] = useState(false)
   const [activeChatType, setActiveChatType] = useState<ChatType>('text')
   const [partnerTyping, setPartnerTyping] = useState(false)
+  const [reconnecting, setReconnecting] = useState(false)
+  const [partnerReconnecting, setPartnerReconnecting] = useState(false)
 
   // Keep a ref in sync so socket callbacks can read the latest status.
   useEffect(() => { statusRef.current = status }, [status])
@@ -43,17 +49,31 @@ export function useSocket(token: string | null) {
   useEffect(() => {
     if (!token) return
     const wsToken = token
+    if (!cidRef.current) {
+      cidRef.current =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`
+    }
 
     let closedByUs = false
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined
     let keepAlive: ReturnType<typeof setInterval> | undefined
 
     function connect() {
-      const url = `${wsUrl('/ws')}?token=${encodeURIComponent(wsToken)}`
+      const url = `${wsUrl('/ws')}?token=${encodeURIComponent(wsToken)}&cid=${encodeURIComponent(cidRef.current)}`
       const ws = new WebSocket(url)
       wsRef.current = ws
 
       ws.onopen = () => {
+        attemptRef.current = 0
+
+        // Reconnected mid-chat: ask the server to resume the room (it survives
+        // a grace window server-side). Response: `resumed` or `resume_failed`.
+        if (statusRef.current === 'matched') {
+          ws.send(JSON.stringify({ type: 'resume' }))
+        }
+
         // Flush anything queued before the connection was ready (e.g. the video
         // flow auto-joins the queue as soon as the camera is up).
         const pending = pendingSendsRef.current
@@ -78,12 +98,14 @@ export function useSocket(token: string | null) {
         wsRef.current = null
         clearInterval(keepAlive)
         if (closedByUs) return
-        // Surface a dropped active match, then reconnect (and rejoin if searching).
+        // Mid-chat blip: keep the match alive and try to resume — the server
+        // holds the room for a grace window. UI shows "Reconnecting…".
         if (statusRef.current === 'matched') {
-          setStatus('disconnected')
-          setRoomId(null)
+          setReconnecting(true)
         }
-        reconnectTimer = setTimeout(connect, 1500)
+        // Exponential backoff + jitter (fast first retries for seamless resume).
+        const delay = Math.min(15000, 500 * 2 ** attemptRef.current++) + Math.random() * 300
+        reconnectTimer = setTimeout(connect, delay)
       }
 
       ws.onmessage = (event) => {
@@ -108,7 +130,29 @@ export function useSocket(token: string | null) {
           setStatus('matched')
           setMessages([])
           setPartnerTyping(false)
+          setReconnecting(false)
+          setPartnerReconnecting(false)
           playMatchSound() // chime on match (text + video)
+          break
+        case 'resumed':
+          // Back in the same room after a blip — conversation continues.
+          setRoomId(msg.roomId ?? null)
+          setStatus('matched')
+          setReconnecting(false)
+          break
+        case 'resume_failed':
+          // Room didn't survive the blip (partner skipped / grace expired).
+          setReconnecting(false)
+          setStatus('disconnected')
+          setRoomId(null)
+          setPartnerTyping(false)
+          break
+        case 'partner_reconnecting':
+          setPartnerReconnecting(true)
+          setPartnerTyping(false)
+          break
+        case 'partner_back':
+          setPartnerReconnecting(false)
           break
         case 'message':
           setPartnerTyping(false)
@@ -136,6 +180,7 @@ export function useSocket(token: string | null) {
           setStatus('disconnected')
           setRoomId(null)
           setPartnerTyping(false)
+          setPartnerReconnecting(false)
           break
         case 'queued':
           setStatus('searching')
@@ -145,6 +190,7 @@ export function useSocket(token: string | null) {
           setRoomId(null)
           setMessages([])
           setPartnerTyping(false)
+          setPartnerReconnecting(false)
           break
       }
       }
@@ -176,6 +222,7 @@ export function useSocket(token: string | null) {
     wantQueueRef.current = { interests, mode, chatType }
     setMessages([])
     setStatus('searching')
+    setPartnerReconnecting(false)
     send({ type: 'join_queue', interests, mode, chatType })
   }, [send])
 
@@ -199,6 +246,8 @@ export function useSocket(token: string | null) {
     setStatus('idle')
     setRoomId(null)
     setMessages([])
+    setReconnecting(false)
+    setPartnerReconnecting(false)
   }, [send])
 
   const stop = useCallback(() => skip(), [skip])
@@ -219,6 +268,7 @@ export function useSocket(token: string | null) {
 
   return {
     status, messages, roomId, initiator, activeChatType, partnerTyping,
+    reconnecting, partnerReconnecting,
     joinQueue, sendMessage, sendTyping, skip, stop,
     sendSignal, setSignalHandler,
   }
