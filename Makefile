@@ -17,7 +17,8 @@ prod:
 dev:
 	$(DEV_COMPOSE) up -d
 
-up: prod
+# `make up` = local dev (hot-reload). Use `make prod` for production images.
+up: dev
 
 # ── Common ────────────────────────────────────────────────────────────────────
 down:
