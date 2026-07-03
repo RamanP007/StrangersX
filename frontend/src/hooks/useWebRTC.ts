@@ -3,10 +3,42 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { SignalMessage } from '@/types'
 
-const ICE_SERVERS: RTCIceServer[] = [
+// STUN only discovers your public address; it CANNOT relay media through
+// restrictive NATs (mobile carriers, CGNAT, corporate firewalls). Those peers
+// need a TURN relay or the connection stalls forever at "Connecting…" even
+// though signalling (offer/answer/ICE) flows fine over the WebSocket.
+//
+// TURN credentials are fetched from our backend (GET /api/turn), which issues
+// short-lived Metered credentials with the server-side secret key. If TURN isn't
+// configured the backend returns [] and we fall back to STUN (direct-only).
+const BASE_STUN: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
 ]
+
+let iceServersPromise: Promise<RTCIceServer[]> | null = null
+
+async function fetchIceServers(): Promise<RTCIceServer[]> {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/turn`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`turn fetch ${res.status}`)
+  const servers = await res.json()
+  if (!Array.isArray(servers)) throw new Error('bad turn response')
+  // servers may legitimately be empty (TURN not configured) — still a valid,
+  // cacheable result (STUN-only).
+  return [...BASE_STUN, ...(servers as RTCIceServer[])]
+}
+
+// Memoized so we hit the backend once per page load; a transient failure clears
+// the memo so the next call retries instead of being stuck on STUN-only.
+function getIceServers(): Promise<RTCIceServer[]> {
+  if (!iceServersPromise) {
+    iceServersPromise = fetchIceServers().catch(() => {
+      iceServersPromise = null
+      return BASE_STUN
+    })
+  }
+  return iceServersPromise
+}
 
 export type RTCConnState = 'idle' | 'connecting' | 'connected' | 'failed'
 
@@ -14,11 +46,12 @@ interface Options {
   mediaActive: boolean // acquire & keep the local camera (video mode active)
   peerActive: boolean  // matched: establish the peer connection
   initiator: boolean
+  startCameraOff?: boolean // when acquiring media, immediately disable the video track (mid-chat switch initiated by the partner)
   sendSignal: (type: SignalMessage['type'], data: any) => void
   setSignalHandler: (fn: ((msg: SignalMessage) => void) | null) => void
 }
 
-export function useWebRTC({ mediaActive, peerActive, initiator, sendSignal, setSignalHandler }: Options) {
+export function useWebRTC({ mediaActive, peerActive, initiator, startCameraOff = false, sendSignal, setSignalHandler }: Options) {
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
@@ -34,6 +67,8 @@ export function useWebRTC({ mediaActive, peerActive, initiator, sendSignal, setS
   const [quality, setQuality] = useState<'good' | 'fair' | 'poor' | null>(null)
   const [latencyMs, setLatencyMs] = useState<number | null>(null)
   const prevLossRef = useRef<{ lost: number; recv: number }>({ lost: 0, recv: 0 })
+  const startCameraOffRef = useRef(startCameraOff)
+  useEffect(() => { startCameraOffRef.current = startCameraOff }, [startCameraOff])
 
   // Hard-stops the camera/mic and releases the device (turns off the camera light).
   const stopLocalMedia = useCallback(() => {
@@ -62,6 +97,10 @@ export function useWebRTC({ mediaActive, peerActive, initiator, sendSignal, setS
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
         if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
         localStreamRef.current = stream
+        if (startCameraOffRef.current) {
+          stream.getVideoTracks().forEach(t => { t.enabled = false })
+          setCameraOff(true)
+        }
         if (localVideoRef.current) localVideoRef.current.srcObject = stream
         setMediaReady(true)
       } catch {
@@ -100,61 +139,98 @@ export function useWebRTC({ mediaActive, peerActive, initiator, sendSignal, setS
       return
     }
 
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
-    pcRef.current = pc
+    let cancelled = false
+    let statsTimer: ReturnType<typeof setInterval> | undefined
     setConnState('connecting')
 
-    localStreamRef.current.getTracks().forEach(t => pc.addTrack(t, localStreamRef.current!))
+    // ICE servers (incl. TURN) are fetched async from the backend, so build the
+    // peer connection only once they're ready — otherwise relay candidates are
+    // missing and restrictive-NAT peers never connect.
+    ;(async () => {
+      const iceServers = await getIceServers()
+      const stream = localStreamRef.current
+      if (cancelled || !stream) return
 
-    pc.onicecandidate = (e) => {
-      if (e.candidate) sendSignal('webrtc_ice', e.candidate.toJSON())
-    }
-    pc.ontrack = (e) => {
-      if (remoteVideoRef.current && e.streams[0]) {
-        remoteVideoRef.current.srcObject = e.streams[0]
+      const pc = new RTCPeerConnection({ iceServers, iceCandidatePoolSize: 4 })
+      pcRef.current = pc
+
+      stream.getTracks().forEach((t: MediaStreamTrack) => pc.addTrack(t, stream))
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate) sendSignal('webrtc_ice', e.candidate.toJSON())
       }
-    }
-    pc.onconnectionstatechange = () => {
-      const s = pc.connectionState
-      if (s === 'connected') setConnState('connected')
-      else if (s === 'failed' || s === 'closed') setConnState('failed')
-    }
-
-    async function flushCandidates(peer: RTCPeerConnection) {
-      const pending = pendingCandidates.current
-      pendingCandidates.current = []
-      for (const c of pending) {
-        try { await peer.addIceCandidate(c) } catch { /* ignore */ }
+      pc.ontrack = (e) => {
+        if (remoteVideoRef.current && e.streams[0]) {
+          remoteVideoRef.current.srcObject = e.streams[0]
+          // Nudge playback — the Start-video user gesture already satisfies autoplay.
+          remoteVideoRef.current.play?.().catch(() => {})
+        }
       }
-    }
-
-    setSignalHandler(async (msg: SignalMessage) => {
-      const peer = pcRef.current
-      if (!peer) return
-      try {
-        if (msg.type === 'webrtc_offer') {
-          await peer.setRemoteDescription(new RTCSessionDescription(msg.data))
-          await flushCandidates(peer)
-          const answer = await peer.createAnswer()
-          await peer.setLocalDescription(answer)
-          sendSignal('webrtc_answer', answer)
-        } else if (msg.type === 'webrtc_answer') {
-          await peer.setRemoteDescription(new RTCSessionDescription(msg.data))
-          await flushCandidates(peer)
-        } else if (msg.type === 'webrtc_ice') {
-          if (peer.remoteDescription && peer.remoteDescription.type) {
-            await peer.addIceCandidate(msg.data)
-          } else {
-            pendingCandidates.current.push(msg.data)
+      pc.onconnectionstatechange = () => {
+        const s = pc.connectionState
+        console.log('[webrtc] connectionState:', s)
+        if (s === 'connected') setConnState('connected')
+        else if (s === 'failed' || s === 'closed') setConnState('failed')
+      }
+      // Diagnostics + self-healing: if ICE can't find a working path it ends in
+      // 'failed'; the initiator retries with fresh candidates (iceRestart).
+      pc.oniceconnectionstatechange = async () => {
+        const s = pc.iceConnectionState
+        console.log('[webrtc] iceConnectionState:', s)
+        if (s === 'connected' || s === 'completed') {
+          setConnState('connected')
+        } else if (s === 'failed') {
+          if (initiator && pcRef.current === pc) {
+            try {
+              const offer = await pc.createOffer({ iceRestart: true })
+              await pc.setLocalDescription(offer)
+              sendSignal('webrtc_offer', offer)
+            } catch (err) { console.error('[webrtc] ICE restart failed:', err) }
           }
         }
-      } catch (err) {
-        console.error('WebRTC signal error:', err)
       }
-    })
+      pc.onicegatheringstatechange = () => {
+        console.log('[webrtc] iceGatheringState:', pc.iceGatheringState)
+      }
+      pc.onicecandidateerror = (e: any) => {
+        // 701 = TURN/STUN server unreachable; 300-family = auth/allocation issues.
+        console.warn('[webrtc] ICE candidate error', e?.errorCode, e?.errorText, e?.url)
+      }
 
-    if (initiator) {
-      ;(async () => {
+      async function flushCandidates(peer: RTCPeerConnection) {
+        const pending = pendingCandidates.current
+        pendingCandidates.current = []
+        for (const c of pending) {
+          try { await peer.addIceCandidate(c) } catch { /* ignore */ }
+        }
+      }
+
+      setSignalHandler(async (msg: SignalMessage) => {
+        const peer = pcRef.current
+        if (!peer) return
+        try {
+          if (msg.type === 'webrtc_offer') {
+            await peer.setRemoteDescription(new RTCSessionDescription(msg.data))
+            await flushCandidates(peer)
+            const answer = await peer.createAnswer()
+            await peer.setLocalDescription(answer)
+            sendSignal('webrtc_answer', answer)
+          } else if (msg.type === 'webrtc_answer') {
+            await peer.setRemoteDescription(new RTCSessionDescription(msg.data))
+            await flushCandidates(peer)
+          } else if (msg.type === 'webrtc_ice') {
+            if (peer.remoteDescription && peer.remoteDescription.type) {
+              await peer.addIceCandidate(msg.data)
+            } else {
+              pendingCandidates.current.push(msg.data)
+            }
+          }
+        } catch (err) {
+          console.error('WebRTC signal error:', err)
+        }
+      })
+
+      if (initiator) {
         try {
           const offer = await pc.createOffer()
           await pc.setLocalDescription(offer)
@@ -163,56 +239,63 @@ export function useWebRTC({ mediaActive, peerActive, initiator, sendSignal, setS
           console.error('createOffer error:', err)
           setConnState('failed')
         }
-      })()
-    }
-
-    // Poll connection stats → RTT (latency) + packet loss → quality level.
-    prevLossRef.current = { lost: 0, recv: 0 }
-    const statsTimer = setInterval(async () => {
-      const peer = pcRef.current
-      if (!peer || peer.connectionState !== 'connected') return
-      let rtt: number | null = null
-      let lost = 0
-      let recv = 0
-      try {
-        const stats = await peer.getStats()
-        stats.forEach((r: any) => {
-          if (r.type === 'candidate-pair' && r.nominated && r.currentRoundTripTime != null) {
-            rtt = r.currentRoundTripTime * 1000
-          } else if (r.type === 'remote-inbound-rtp' && r.roundTripTime != null) {
-            rtt = r.roundTripTime * 1000
-          }
-          if (r.type === 'inbound-rtp' && r.kind === 'video') {
-            lost += r.packetsLost || 0
-            recv += r.packetsReceived || 0
-          }
-        })
-      } catch {
-        return
       }
 
-      const prev = prevLossRef.current
-      const dLost = Math.max(0, lost - prev.lost)
-      const dRecv = Math.max(0, recv - prev.recv)
-      prevLossRef.current = { lost, recv }
-      const lossPct = dLost + dRecv > 0 ? (dLost / (dLost + dRecv)) * 100 : 0
+      // Poll connection stats → RTT (latency) + packet loss → quality level.
+      prevLossRef.current = { lost: 0, recv: 0 }
+      statsTimer = setInterval(async () => {
+        const peer = pcRef.current
+        if (!peer || peer.connectionState !== 'connected') return
+        let rtt: number | null = null
+        let lost = 0
+        let recv = 0
+        try {
+          const stats = await peer.getStats()
+          stats.forEach((r: any) => {
+            if (r.type === 'candidate-pair' && r.nominated && r.currentRoundTripTime != null) {
+              rtt = r.currentRoundTripTime * 1000
+            } else if (r.type === 'remote-inbound-rtp' && r.roundTripTime != null) {
+              rtt = r.roundTripTime * 1000
+            }
+            if (r.type === 'inbound-rtp' && r.kind === 'video') {
+              lost += r.packetsLost || 0
+              recv += r.packetsReceived || 0
+            }
+          })
+        } catch {
+          return
+        }
 
-      let q: 'good' | 'fair' | 'poor' = 'good'
-      if ((rtt != null && rtt > 300) || lossPct > 5) q = 'poor'
-      else if ((rtt != null && rtt > 150) || lossPct > 2) q = 'fair'
+        const prev = prevLossRef.current
+        const dLost = Math.max(0, lost - prev.lost)
+        const dRecv = Math.max(0, recv - prev.recv)
+        prevLossRef.current = { lost, recv }
+        const lossPct = dLost + dRecv > 0 ? (dLost / (dLost + dRecv)) * 100 : 0
 
-      setLatencyMs(rtt != null ? Math.round(rtt) : null)
-      setQuality(q)
-    }, 2000)
+        let q: 'good' | 'fair' | 'poor' = 'good'
+        if ((rtt != null && rtt > 300) || lossPct > 5) q = 'poor'
+        else if ((rtt != null && rtt > 150) || lossPct > 2) q = 'fair'
+
+        setLatencyMs(rtt != null ? Math.round(rtt) : null)
+        setQuality(q)
+      }, 2000)
+    })()
 
     return () => {
+      cancelled = true
       clearInterval(statsTimer)
       setSignalHandler(null)
-      pc.onicecandidate = null
-      pc.ontrack = null
-      pc.onconnectionstatechange = null
-      pc.close()
-      pcRef.current = null
+      const pc = pcRef.current
+      if (pc) {
+        pc.onicecandidate = null
+        pc.ontrack = null
+        pc.onconnectionstatechange = null
+        pc.oniceconnectionstatechange = null
+        pc.onicegatheringstatechange = null
+        pc.onicecandidateerror = null
+        pc.close()
+        pcRef.current = null
+      }
       pendingCandidates.current = []
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null
       setConnState('idle')

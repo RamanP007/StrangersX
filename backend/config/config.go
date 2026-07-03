@@ -9,14 +9,16 @@ import (
 )
 
 type Config struct {
-	Port           string
-	MongoURI       string
-	RedisURI       string
-	JWTSecret      string
-	GoogleClientID string
-	AllowedOrigins []string
-	AdminUsername  string
-	AdminPassword  string
+	Port             string
+	MongoURI         string
+	RedisURI         string
+	JWTSecret        string
+	GoogleClientID   string
+	AllowedOrigins   []string
+	AdminUsername    string
+	AdminPassword    string
+	MeteredDomain    string
+	MeteredSecretKey string
 }
 
 var App Config
@@ -34,6 +36,10 @@ func Load() {
 		AllowedOrigins: resolveAllowedOrigins(),
 		AdminUsername:  getEnv("ADMIN_USERNAME", "admin"),
 		AdminPassword:  getEnv("ADMIN_PASSWORD", "admin"),
+		// Metered TURN: the backend fetches short-lived ICE credentials with the
+		// secret key and serves them at /api/turn, keeping the secret off the client.
+		MeteredDomain:    strings.TrimSpace(os.Getenv("METERED_DOMAIN")),
+		MeteredSecretKey: strings.TrimSpace(os.Getenv("METERED_SECRET_KEY")),
 	}
 }
 

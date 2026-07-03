@@ -7,6 +7,7 @@ import { BackendAuthProvider } from './BackendAuthProvider'
 import { TermsGate } from './TermsGate'
 import { AppLoadingScreen } from './AppLoadingScreen'
 import { SessionGuard } from './SessionGuard'
+import { BannedSignInNotice } from './BannedSignInNotice'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -17,6 +18,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           <AppLoadingScreen />
           <SessionGuard />
           <TermsGate />
+          <BannedSignInNotice />
           <Toaster
             position="top-right"
             toastOptions={{

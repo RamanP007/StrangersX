@@ -16,6 +16,9 @@ interface OutMsg {
   initiator?: boolean
   replyText?: string
   replyMine?: boolean
+  partnerId?: string
+  partnerIsGuest?: boolean
+  partnerUsername?: string
   data?: any
 }
 
@@ -39,6 +42,10 @@ export function useSocket(token: string | null) {
   const [partnerTyping, setPartnerTyping] = useState(false)
   const [reconnecting, setReconnecting] = useState(false)
   const [partnerReconnecting, setPartnerReconnecting] = useState(false)
+  const [partnerSocketId, setPartnerSocketId] = useState<string | null>(null)
+  const [partnerIsGuest, setPartnerIsGuest] = useState(true)
+  const [partnerUsername, setPartnerUsername] = useState<string | null>(null)
+  const [partnerSwitchedToVideo, setPartnerSwitchedToVideo] = useState(false)
 
   // Keep a ref in sync so socket callbacks can read the latest status.
   useEffect(() => { statusRef.current = status }, [status])
@@ -131,7 +138,16 @@ export function useSocket(token: string | null) {
           setPartnerTyping(false)
           setReconnecting(false)
           setPartnerReconnecting(false)
+          setPartnerSocketId(msg.partnerId ?? null)
+          setPartnerIsGuest(msg.partnerIsGuest ?? true)
+          setPartnerUsername(msg.partnerUsername || null)
+          setPartnerSwitchedToVideo(false)
           playMatchSound() // chime on match (text + video)
+          break
+        case 'chat_type_changed':
+          activeChatTypeRef.current = msg.chatType ?? 'video'
+          setActiveChatType(msg.chatType ?? 'video')
+          if (!msg.initiator) setPartnerSwitchedToVideo(true)
           break
         case 'resumed':
           // Back in the same room after a blip — conversation continues.
@@ -180,6 +196,7 @@ export function useSocket(token: string | null) {
           setRoomId(null)
           setPartnerTyping(false)
           setPartnerReconnecting(false)
+          setPartnerSwitchedToVideo(false)
           break
         case 'queued':
           setStatus('searching')
@@ -190,6 +207,10 @@ export function useSocket(token: string | null) {
           setMessages([])
           setPartnerTyping(false)
           setPartnerReconnecting(false)
+          setPartnerSocketId(null)
+          setPartnerIsGuest(true)
+          setPartnerUsername(null)
+          setPartnerSwitchedToVideo(false)
           break
       }
       }
@@ -247,9 +268,19 @@ export function useSocket(token: string | null) {
     setMessages([])
     setReconnecting(false)
     setPartnerReconnecting(false)
+    setPartnerSocketId(null)
+    setPartnerIsGuest(true)
+    setPartnerUsername(null)
+    setPartnerSwitchedToVideo(false)
   }, [send])
 
   const stop = useCallback(() => skip(), [skip])
+
+  const switchChatType = useCallback(() => {
+    send({ type: 'switch_chat_type' })
+  }, [send])
+
+  const clearPartnerSwitchNotice = useCallback(() => setPartnerSwitchedToVideo(false), [])
 
   // WebRTC helpers
   const sendSignal = useCallback((type: SignalMessage['type'], data: any) => {
@@ -268,7 +299,9 @@ export function useSocket(token: string | null) {
   return {
     status, messages, roomId, initiator, activeChatType, partnerTyping,
     reconnecting, partnerReconnecting,
+    partnerSocketId, partnerIsGuest, partnerUsername, partnerSwitchedToVideo,
     joinQueue, sendMessage, sendTyping, skip, stop,
+    switchChatType, clearPartnerSwitchNotice,
     sendSignal, setSignalHandler,
   }
 }

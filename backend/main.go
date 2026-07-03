@@ -44,6 +44,13 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"count": services.GetOnlineCount()})
 	})
 
+	// WebRTC ICE servers (STUN + Metered TURN); public so any visitor can fetch.
+	r.GET("/api/turn", handlers.TurnCredentials)
+
+	// Pre-auth ban check, called from the NextAuth signIn callback before any
+	// session/token is issued.
+	r.GET("/api/auth/banned", handlers.CheckGoogleBanStatus)
+
 	// REST API
 	api := r.Group("/api")
 	{
@@ -70,6 +77,7 @@ func main() {
 			protected.POST("/me/terms/accept", handlers.AcceptTerms)
 			protected.GET("/username/check", handlers.CheckUsername)
 			protected.PATCH("/me/username", handlers.UpdateUsername)
+			protected.PATCH("/me/preferences", handlers.UpdatePreferences)
 			protected.POST("/me/username/confirm", handlers.ConfirmUsername)
 			protected.DELETE("/me", handlers.DeleteAccount)
 		}

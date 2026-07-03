@@ -1,7 +1,8 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
-import { useSession } from 'next-auth/react'
+import { useSession, signOut } from 'next-auth/react'
+import toast from 'react-hot-toast'
 import type { User } from '@/types'
 
 interface BackendAuthValue {
@@ -102,6 +103,16 @@ export function BackendAuthProvider({ children }: { children: React.ReactNode })
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ idToken, termsAccepted: true }),
         })
+        if (res.status === 403) {
+          // Banned (should be rare — the NextAuth signIn callback already
+          // blocks this — but close the gap for races/backend-unreachable
+          // fallthrough): fully sign out, don't leave a half-authenticated
+          // NextAuth session with no backend token.
+          toast.error('You have been logged out — your account was banned for suspicious activity.', { duration: 8000 })
+          try { sessionStorage.removeItem(CACHE_KEY) } catch { /* ignore */ }
+          await signOut({ callbackUrl: '/' })
+          return
+        }
         if (!res.ok) throw new Error()
         const data = await res.json()
         if (activeIdToken.current !== idToken) return // token changed meanwhile

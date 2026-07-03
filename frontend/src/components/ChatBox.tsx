@@ -1,8 +1,13 @@
 'use client'
 
 import { useEffect, useRef, useState, KeyboardEvent } from 'react'
+import dynamic from 'next/dynamic'
+import { useTheme } from 'next-themes'
 import type { Message, ReplyRef } from '@/types'
+import { Theme, type EmojiClickData } from 'emoji-picker-react'
 import { Send, Smile, Reply, X } from './icons'
+
+const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false })
 
 interface Props {
   messages: Message[]
@@ -10,18 +15,11 @@ interface Props {
   onTyping?: (isTyping: boolean) => void
   partnerTyping?: boolean
   disabled: boolean
+  partnerLabel?: string
 }
 
-const EMOJIS = [
-  '😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😎',
-  '🤩', '🥳', '😜', '🤔', '😏', '😴', '😢', '😭',
-  '😡', '😱', '🥺', '😬', '🙄', '😇', '🤗', '🤭',
-  '👍', '👎', '👏', '🙌', '🙏', '💪', '👋', '🤝',
-  '🔥', '✨', '⭐', '💯', '❤️', '🧡', '💛', '💚',
-  '💙', '💜', '🖤', '💔', '💋', '🎉', '👀', '😅',
-]
-
-export function ChatBox({ messages, onSend, onTyping, partnerTyping = false, disabled }: Props) {
+export function ChatBox({ messages, onSend, onTyping, partnerTyping = false, disabled, partnerLabel = 'Stranger' }: Props) {
+  const { resolvedTheme } = useTheme()
   const [input, setInput] = useState('')
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [showEmoji, setShowEmoji] = useState(false)
@@ -117,7 +115,7 @@ export function ChatBox({ messages, onSend, onTyping, partnerTyping = false, dis
                   <div className={`mb-1.5 rounded-md border-l-2 px-2 py-1 text-xs
                     ${mine ? 'border-white/60 bg-white/15' : 'border-primary bg-background/50'}`}>
                     <p className={`font-medium ${mine ? 'text-white/90' : 'text-primary'}`}>
-                      {msg.reply.mine ? 'You' : 'Stranger'}
+                      {msg.reply.mine ? 'You' : partnerLabel}
                     </p>
                     <p className={`truncate ${mine ? 'text-white/75' : 'text-muted-foreground'}`}>
                       {msg.reply.text}
@@ -154,7 +152,7 @@ export function ChatBox({ messages, onSend, onTyping, partnerTyping = false, dis
         <div className="mx-3 flex items-center gap-2 rounded-t-lg border-l-2 border-primary bg-muted/60 px-3 py-2">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-medium text-primary">
-              Replying to {replyingTo.from === 'me' ? 'yourself' : 'Stranger'}
+              Replying to {replyingTo.from === 'me' ? 'yourself' : partnerLabel}
             </p>
             <p className="truncate text-xs text-muted-foreground">{replyingTo.text}</p>
           </div>
@@ -183,16 +181,15 @@ export function ChatBox({ messages, onSend, onTyping, partnerTyping = false, dis
             </button>
 
             {showEmoji && (
-              <div className="absolute bottom-full left-0 z-20 mb-2 w-[280px] rounded-xl border border-border
-                              bg-card p-2 shadow-xl animate-fade-in">
-                <div className="grid grid-cols-8 gap-0.5">
-                  {EMOJIS.map(e => (
-                    <button key={e} type="button" onClick={() => addEmoji(e)}
-                      className="flex h-8 w-8 items-center justify-center rounded-md text-lg transition-colors hover:bg-muted">
-                      {e}
-                    </button>
-                  ))}
-                </div>
+              <div className="absolute bottom-full left-0 z-20 mb-2 animate-fade-in">
+                <EmojiPicker
+                  onEmojiClick={(data: EmojiClickData) => addEmoji(data.emoji)}
+                  theme={resolvedTheme === 'light' ? Theme.LIGHT : Theme.DARK}
+                  height={360}
+                  width={300}
+                  searchDisabled={false}
+                  previewConfig={{ showPreview: false }}
+                />
               </div>
             )}
           </div>

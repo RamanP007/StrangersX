@@ -20,6 +20,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [savingPrefs, setSavingPrefs] = useState(false)
 
   // Settings is for registered users only.
   useEffect(() => {
@@ -65,6 +66,21 @@ export default function SettingsPage() {
       setUser(data.user)
       toast.success('Username updated!')
     } catch { toast.error('Could not update username.') } finally { setSaving(false) }
+  }
+
+  async function toggleShowUsername() {
+    if (!token || !user) return
+    setSavingPrefs(true)
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/me/preferences`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ showUsername: !user.showUsername }),
+      })
+      if (!res.ok) throw new Error()
+      const data = await res.json()
+      setUser(data.user)
+    } catch { toast.error('Could not update preference.') } finally { setSavingPrefs(false) }
   }
 
   async function deleteAccount() {
@@ -120,6 +136,31 @@ export default function SettingsPage() {
                 className="btn px-6 py-2.5 text-sm">
                 {saving ? 'Saving…' : 'Save username'}
               </button>
+            </div>
+
+            <div className="card space-y-3 p-6">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <label className="text-sm font-medium">Show my username to strangers</label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    When off, matched strangers see &quot;Stranger&quot; instead of your username.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={toggleShowUsername}
+                  disabled={savingPrefs}
+                  aria-pressed={user.showUsername}
+                  aria-label="Toggle show my username to strangers"
+                  className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors disabled:opacity-50
+                    ${user.showUsername ? 'bg-primary' : 'bg-muted'}`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-background shadow transition-transform
+                      ${user.showUsername ? 'translate-x-[22px]' : 'translate-x-0.5'}`}
+                  />
+                </button>
+              </div>
             </div>
 
             <div className="card space-y-4 p-6">

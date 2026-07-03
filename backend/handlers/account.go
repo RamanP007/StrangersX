@@ -101,6 +101,45 @@ func UpdateUsername(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"user": user})
 }
 
+type updatePreferencesRequest struct {
+	ShowUsername *bool `json:"showUsername" binding:"required"`
+}
+
+// UpdatePreferences updates account-level chat preferences, e.g. whether the
+// user's username is shown to matched strangers instead of "Stranger".
+func UpdatePreferences(c *gin.Context) {
+	if isGuest, _ := c.Get("isGuest"); isGuest == true {
+		c.JSON(http.StatusForbidden, gin.H{"error": "guests have no account"})
+		return
+	}
+
+	var req updatePreferencesRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.ShowUsername == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "showUsername is required"})
+		return
+	}
+
+	userIDVal, _ := c.Get("userId")
+	uid, err := primitive.ObjectIDFromHex(userIDVal.(string))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+
+	update := bson.M{"$set": bson.M{"showUsername": *req.ShowUsername}}
+	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+
+	var user models.User
+	err = services.DB.Collection("users").
+		FindOneAndUpdate(context.Background(), bson.M{"_id": uid}, update, opts).
+		Decode(&user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "update failed"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"user": user})
+}
+
 // ConfirmUsername marks the current (auto-assigned) username as confirmed.
 func ConfirmUsername(c *gin.Context) {
 	if isGuest, _ := c.Get("isGuest"); isGuest == true {

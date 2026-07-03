@@ -109,6 +109,11 @@ func setBan(c *gin.Context, banned bool) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "update failed"})
 		return
 	}
+	if banned {
+		userID := uid.Hex()
+		services.AccountRegistry.ForceLogoutAll(userID)
+		services.KickBannedUser(userID)
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "ok", "banned": banned})
 }
 

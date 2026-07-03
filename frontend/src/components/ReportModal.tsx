@@ -17,10 +17,11 @@ interface Props {
   roomId: string | null
   partnerSocketId?: string
   onClose: () => void
+  onReported?: () => void
   token: string | null
 }
 
-export function ReportModal({ roomId, partnerSocketId, onClose, token }: Props) {
+export function ReportModal({ roomId, partnerSocketId, onClose, onReported, token }: Props) {
   const [reason, setReason] = useState('')
   const [note, setNote] = useState('')
   const [loading, setLoading] = useState(false)
@@ -44,7 +45,8 @@ export function ReportModal({ roomId, partnerSocketId, onClose, token }: Props) 
         }),
       })
       toast.success('Report submitted. Thank you.')
-      onClose()
+      if (onReported) onReported()
+      else onClose()
     } catch {
       toast.error('Failed to submit report.')
     } finally {

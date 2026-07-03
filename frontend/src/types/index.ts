@@ -6,6 +6,7 @@ export interface User {
   avatar: string
   username: string
   usernameConfirmed: boolean
+  showUsername: boolean
   termsAccepted: boolean
   termsAndConditionAccepted: boolean
 }
@@ -37,6 +38,9 @@ export interface MatchedPayload {
   roomId: string
   chatType: ChatType
   initiator: boolean
+  partnerId?: string
+  partnerIsGuest?: boolean
+  partnerUsername?: string
 }
 
 export interface MessagePayload {

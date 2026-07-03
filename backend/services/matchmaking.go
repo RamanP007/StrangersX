@@ -109,10 +109,17 @@ func LeaveQueue(ctx context.Context, socketID string) {
 }
 
 // CreateRoom stores a room mapping in Redis.
-func CreateRoom(ctx context.Context, roomID, socket1, socket2 string) {
+func CreateRoom(ctx context.Context, roomID, socket1, socket2, chatType string) {
 	key := fmt.Sprintf("room:%s", roomID)
-	RDB.HSet(ctx, key, "s1", socket1, "s2", socket2)
+	RDB.HSet(ctx, key, "s1", socket1, "s2", socket2, "chatType", chatType)
 	RDB.Expire(ctx, key, roomTTL)
+}
+
+// SetRoomChatType updates the chat type of an existing room (e.g. a mid-chat
+// text→video switch). Returns false if the write failed.
+func SetRoomChatType(ctx context.Context, roomID, chatType string) bool {
+	key := fmt.Sprintf("room:%s", roomID)
+	return RDB.HSet(ctx, key, "chatType", chatType).Err() == nil
 }
 
 // GetRoomPartner returns the other socket in the room.

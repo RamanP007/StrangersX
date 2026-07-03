@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSession, signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
+import toast from 'react-hot-toast'
 import { Header } from '@/components/Header'
 import { ChatBox } from '@/components/ChatBox'
 import { VideoChat } from '@/components/VideoChat'
@@ -29,6 +30,7 @@ export default function ChatPage() {
   const [chatType, setChatType] = useState<ChatType>('text')
   const [showReport, setShowReport] = useState(false)
   const [started, setStarted] = useState(false)
+  const [videoStartCameraOff, setVideoStartCameraOff] = useState(false)
 
   const profile = authUser
 
@@ -79,20 +81,42 @@ export default function ChatPage() {
   const {
     status, messages, roomId, initiator, activeChatType, partnerTyping,
     reconnecting, partnerReconnecting,
-    joinQueue, sendMessage, sendTyping, skip, stop, sendSignal, setSignalHandler,
+    partnerSocketId, partnerIsGuest, partnerUsername, partnerSwitchedToVideo,
+    joinQueue, sendMessage, sendTyping, skip, stop,
+    switchChatType, clearPartnerSwitchNotice,
+    sendSignal, setSignalHandler,
   } = useSocket(token)
 
   const isMatched = status === 'matched'
   const isVideo = chatType === 'video'
   const videoSession = isVideo && started
+  const partnerLabel = partnerUsername || 'Stranger'
 
   const webrtc = useWebRTC({
     mediaActive: videoSession,
     peerActive: isMatched && activeChatType === 'video',
     initiator,
+    startCameraOff: videoStartCameraOff,
     sendSignal,
     setSignalHandler,
   })
+
+  // Partner switched a live text chat to video: follow them into the video
+  // layout, but start with our camera off until we choose to enable it.
+  useEffect(() => {
+    if (partnerSwitchedToVideo) {
+      setChatType('video')
+      setVideoStartCameraOff(true)
+      toast(`${partnerLabel} switched to video chat`)
+      clearPartnerSwitchNotice()
+    }
+  }, [partnerSwitchedToVideo, partnerLabel, clearPartnerSwitchNotice])
+
+  function handleSwitchToVideo() {
+    setVideoStartCameraOff(false)
+    setChatType('video')
+    switchChatType()
+  }
 
   const videoJoinedRef = useRef(false)
   useEffect(() => {
@@ -113,10 +137,11 @@ export default function ChatPage() {
 
   function handleStart() {
     setStarted(true)
+    setVideoStartCameraOff(false)
     if (chatType === 'text') joinQueue(interests, mode, 'text')
   }
-  function handleSkip() { skip(); joinQueue(interests, mode, chatType) }
-  function handleStop() { stop(); setStarted(false) }
+  function handleSkip() { skip(); setVideoStartCameraOff(false); joinQueue(interests, mode, chatType) }
+  function handleStop() { stop(); setStarted(false); setVideoStartCameraOff(false) }
 
   const isSearching = status === 'searching'
   const isIdle = status === 'idle' || status === 'disconnected'
@@ -197,6 +222,7 @@ export default function ChatPage() {
                 onTyping={sendTyping}
                 partnerTyping={partnerTyping}
                 chatDisabled={status !== 'matched'}
+                partnerLabel={partnerLabel}
               />
             </div>
           </div>
@@ -225,6 +251,11 @@ export default function ChatPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
+                  {isSignedIn && !partnerIsGuest && activeChatType === 'text' && (
+                    <button onClick={handleSwitchToVideo} className="btn-outline flex items-center gap-1.5 px-3 py-1 text-sm">
+                      <Video size={14} /> Switch to video
+                    </button>
+                  )}
                   <button onClick={handleSkip} className="btn-outline px-3 py-1 text-sm">Skip</button>
                   <button onClick={handleStop} className="btn-outline px-3 py-1 text-sm">Stop</button>
                   <button onClick={() => setShowReport(true)} className="btn-outline px-3 py-1 text-sm">Report</button>
@@ -332,6 +363,7 @@ export default function ChatPage() {
                   onTyping={sendTyping}
                   partnerTyping={partnerTyping}
                   disabled={status !== 'matched'}
+                  partnerLabel={partnerLabel}
                 />
               )}
             </div>
@@ -339,7 +371,15 @@ export default function ChatPage() {
         )}
       </main>
 
-      {showReport && <ReportModal roomId={roomId} onClose={() => setShowReport(false)} token={token} />}
+      {showReport && (
+        <ReportModal
+          roomId={roomId}
+          partnerSocketId={partnerSocketId ?? undefined}
+          onClose={() => setShowReport(false)}
+          onReported={() => { setShowReport(false); handleSkip() }}
+          token={token}
+        />
+      )}
 
       {showUsernamePopup && token && profile && (
         <UsernamePopup

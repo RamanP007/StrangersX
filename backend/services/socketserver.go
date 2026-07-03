@@ -8,15 +8,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"omegle-backend/config"
+	"omegle-backend/models"
 )
 
 // ─── Message protocol ────────────────────────────────────────────────────────
 
 type InMsg struct {
-	Type      string          `json:"type"` // join_queue | message | skip | typing | stop_typing | ping | webrtc_*
+	Type      string          `json:"type"` // join_queue | message | skip | typing | stop_typing | ping | switch_chat_type | webrtc_*
 	Text      string          `json:"text"`
 	Interests []string        `json:"interests"`
 	Mode      string          `json:"mode"`      // random | interests
@@ -27,33 +31,41 @@ type InMsg struct {
 }
 
 type OutMsg struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text,omitempty"`
-	From      string          `json:"from,omitempty"`
-	RoomID    string          `json:"roomId,omitempty"`
-	Status    string          `json:"status,omitempty"`
-	ChatType  string          `json:"chatType,omitempty"`
-	Initiator bool            `json:"initiator,omitempty"`
-	ReplyText string          `json:"replyText,omitempty"`
-	ReplyMine bool            `json:"replyMine,omitempty"`
-	Data      json.RawMessage `json:"data,omitempty"`
+	Type            string          `json:"type"`
+	Text            string          `json:"text,omitempty"`
+	From            string          `json:"from,omitempty"`
+	RoomID          string          `json:"roomId,omitempty"`
+	Status          string          `json:"status,omitempty"`
+	ChatType        string          `json:"chatType,omitempty"`
+	Initiator       bool            `json:"initiator,omitempty"`
+	ReplyText       string          `json:"replyText,omitempty"`
+	ReplyMine       bool            `json:"replyMine,omitempty"`
+	PartnerID       string          `json:"partnerId,omitempty"`
+	PartnerIsGuest  bool            `json:"partnerIsGuest"`
+	PartnerUsername string          `json:"partnerUsername,omitempty"`
+	Data            json.RawMessage `json:"data,omitempty"`
 }
 
 // ─── Hub ─────────────────────────────────────────────────────────────────────
 
 type Client struct {
-	id   string
-	hub  *Hub
-	conn *websocket.Conn
-	send chan OutMsg
+	id           string
+	hub          *Hub
+	conn         *websocket.Conn
+	send         chan OutMsg
+	userID       string // Mongo user id; empty for guests
+	isGuest      bool
+	username     string
+	showUsername bool
 }
 
 type Hub struct {
 	mu      sync.RWMutex
 	clients map[string]*Client
+	byUser  map[string]string // userID -> cid, logged-in clients only
 }
 
-var GlobalHub = &Hub{clients: make(map[string]*Client)}
+var GlobalHub = &Hub{clients: make(map[string]*Client), byUser: make(map[string]string)}
 
 // register stores c as the live connection for its id and returns the previous
 // connection (if any) so the caller can close it — a reconnecting client reuses
@@ -62,6 +74,9 @@ func (h *Hub) register(c *Client) *Client {
 	h.mu.Lock()
 	old := h.clients[c.id]
 	h.clients[c.id] = c
+	if !c.isGuest && c.userID != "" {
+		h.byUser[c.userID] = c.id
+	}
 	h.mu.Unlock()
 	return old
 }
@@ -74,9 +89,30 @@ func (h *Hub) unregisterIfCurrent(c *Client) bool {
 	defer h.mu.Unlock()
 	if cur, ok := h.clients[c.id]; ok && cur == c {
 		delete(h.clients, c.id)
+		if !c.isGuest && c.userID != "" && h.byUser[c.userID] == c.id {
+			delete(h.byUser, c.userID)
+		}
 		return true
 	}
 	return false
+}
+
+func (h *Hub) getClient(id string) (*Client, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	c, ok := h.clients[id]
+	return c, ok
+}
+
+// ClientByUser returns the active chat socket for a logged-in user, if any.
+func (h *Hub) ClientByUser(userID string) (*Client, bool) {
+	h.mu.RLock()
+	cid, ok := h.byUser[userID]
+	h.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	return h.getClient(cid)
 }
 
 func (h *Hub) Send(clientID string, msg OutMsg) {
@@ -90,6 +126,26 @@ func (h *Hub) Send(clientID string, msg OutMsg) {
 			log.Printf("send buffer full for client %s", clientID)
 		}
 	}
+}
+
+// KickBannedUser force-disconnects a logged-in user's active chat socket (if
+// any), tearing down their room so the partner is notified, same as a normal
+// disconnect. Called by the admin ban handler.
+func KickBannedUser(userID string) {
+	client, ok := GlobalHub.ClientByUser(userID)
+	if !ok {
+		return
+	}
+	ctx := context.Background()
+	client.hub.Send(client.id, OutMsg{Type: "banned"})
+	client.leaveCurrentRoom(ctx)
+	LeaveQueue(ctx, client.id)
+	// Give writePump a moment to flush the "banned" message before the
+	// connection is torn down.
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		client.conn.Close()
+	}()
 }
 
 // ─── Upgrader ────────────────────────────────────────────────────────────────
@@ -113,6 +169,41 @@ func originAllowed(r *http.Request) bool {
 		}
 	}
 	return false
+}
+
+// ─── Identity ─────────────────────────────────────────────────────────────────
+
+type chatTokenClaims struct {
+	UserID string `json:"userId"`
+	jwt.RegisteredClaims
+}
+
+// identifyClient resolves the presenting token (a backend JWT for logged-in
+// users, or a guest session token) into an identity for the socket. Unknown or
+// invalid tokens fall back to a guest identity keyed by the raw token string.
+func identifyClient(tokenStr string) (userID string, isGuest bool, username string, showUsername bool) {
+	if tokenStr == "" {
+		return "", true, "", false
+	}
+
+	claims := &chatTokenClaims{}
+	token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+		return []byte(config.App.JWTSecret), nil
+	})
+	if err == nil && token.Valid && claims.UserID != "" {
+		if uid, err := primitive.ObjectIDFromHex(claims.UserID); err == nil {
+			var user models.User
+			if err := DB.Collection("users").FindOne(context.Background(), bson.M{"_id": uid}).Decode(&user); err == nil {
+				return claims.UserID, false, user.Username, user.ShowUsername
+			}
+		}
+		return claims.UserID, false, "", false
+	}
+
+	if ValidateGuestSession(tokenStr) {
+		return tokenStr, true, "", false
+	}
+	return "", true, "", false
 }
 
 // ─── HTTP handler ─────────────────────────────────────────────────────────────
@@ -144,11 +235,17 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	userID, isGuest, username, showUsername := identifyClient(r.URL.Query().Get("token"))
+
 	client := &Client{
-		id:   cid,
-		hub:  GlobalHub,
-		conn: conn,
-		send: make(chan OutMsg, 64),
+		id:           cid,
+		hub:          GlobalHub,
+		conn:         conn,
+		send:         make(chan OutMsg, 64),
+		userID:       userID,
+		isGuest:      isGuest,
+		username:     username,
+		showUsername: showUsername,
 	}
 	if old := GlobalHub.register(client); old != nil {
 		old.conn.Close() // supersede the zombie connection from before the blip
@@ -241,12 +338,26 @@ func (c *Client) handle(ctx context.Context, msg InMsg) {
 		if matched {
 			LeaveQueue(ctx, partnerID)
 			roomID := uuid.New().String()
-			CreateRoom(ctx, roomID, c.id, partnerID)
+			CreateRoom(ctx, roomID, c.id, partnerID, chatType)
 			SetSocketRoom(ctx, c.id, roomID)
 			SetSocketRoom(ctx, partnerID, roomID)
+
+			partnerClient, _ := c.hub.getClient(partnerID)
+			partnerIsGuest := partnerClient == nil || partnerClient.isGuest
+			partnerUsernameForC := ""
+			if partnerClient != nil && !partnerClient.isGuest && partnerClient.showUsername {
+				partnerUsernameForC = partnerClient.username
+			}
+			selfUsernameForPartner := ""
+			if !c.isGuest && c.showUsername {
+				selfUsernameForPartner = c.username
+			}
+
 			// The matcher (c) becomes the WebRTC initiator; the partner answers.
-			c.hub.Send(c.id, OutMsg{Type: "matched", RoomID: roomID, ChatType: chatType, Initiator: true})
-			c.hub.Send(partnerID, OutMsg{Type: "matched", RoomID: roomID, ChatType: chatType, Initiator: false})
+			c.hub.Send(c.id, OutMsg{Type: "matched", RoomID: roomID, ChatType: chatType, Initiator: true,
+				PartnerID: partnerID, PartnerIsGuest: partnerIsGuest, PartnerUsername: partnerUsernameForC})
+			c.hub.Send(partnerID, OutMsg{Type: "matched", RoomID: roomID, ChatType: chatType, Initiator: false,
+				PartnerID: c.id, PartnerIsGuest: c.isGuest, PartnerUsername: selfUsernameForPartner})
 		} else {
 			JoinQueue(ctx, c.id, msg.Interests, mode, chatType)
 			c.hub.Send(c.id, OutMsg{Type: "queued", Status: "searching"})
@@ -270,6 +381,9 @@ func (c *Client) handle(ctx context.Context, msg InMsg) {
 	case "webrtc_offer", "webrtc_answer", "webrtc_ice":
 		// Forward the opaque SDP/ICE payload to the room partner.
 		c.relayToPartner(ctx, OutMsg{Type: msg.Type, Data: msg.Data})
+
+	case "switch_chat_type":
+		c.switchToVideo(ctx)
 
 	case "skip":
 		c.leaveCurrentRoom(ctx)
@@ -304,6 +418,32 @@ func (c *Client) relayToPartner(ctx context.Context, out OutMsg) {
 		return
 	}
 	c.hub.Send(partnerID, out)
+}
+
+// switchToVideo flips the current room to video chat, but only when both
+// participants are logged-in (non-guest) users — enforced server-side so a
+// tampered client can't force a guest partner into video.
+func (c *Client) switchToVideo(ctx context.Context) {
+	if c.isGuest {
+		return
+	}
+	roomID, ok := GetSocketRoom(ctx, c.id)
+	if !ok {
+		return
+	}
+	partnerID, found := GetRoomPartner(ctx, roomID, c.id)
+	if !found {
+		return
+	}
+	partnerClient, ok := c.hub.getClient(partnerID)
+	if !ok || partnerClient.isGuest {
+		return
+	}
+	if !SetRoomChatType(ctx, roomID, "video") {
+		return
+	}
+	c.hub.Send(c.id, OutMsg{Type: "chat_type_changed", ChatType: "video", Initiator: true})
+	c.hub.Send(partnerID, OutMsg{Type: "chat_type_changed", ChatType: "video", Initiator: false})
 }
 
 func (c *Client) leaveCurrentRoom(ctx context.Context) {

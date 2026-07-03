@@ -30,6 +30,7 @@ interface Props {
   onTyping?: (isTyping: boolean) => void
   partnerTyping?: boolean
   chatDisabled: boolean
+  partnerLabel?: string
 }
 
 function Overlay({ children }: { children: React.ReactNode }) {
@@ -65,7 +66,7 @@ export function VideoChat({
   mediaReady, mediaError, onRetryMedia,
   connState, quality, latencyMs, searching, partnerLeft,
   muted, cameraOff, onToggleMute, onToggleCamera,
-  messages, onSend, onTyping, partnerTyping, chatDisabled,
+  messages, onSend, onTyping, partnerTyping, chatDisabled, partnerLabel = 'Stranger',
 }: Props) {
   const [chatOpen, setChatOpen] = useState(false)
   const [unread, setUnread] = useState(0)
@@ -88,6 +89,7 @@ export function VideoChat({
       onTyping={onTyping}
       partnerTyping={partnerTyping}
       disabled={chatDisabled}
+      partnerLabel={partnerLabel}
     />
   )
 
@@ -139,7 +141,7 @@ export function VideoChat({
         <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-muted">
           <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
           <span className="absolute left-3 top-3 z-10 rounded-full border border-border bg-background/70 px-2.5 py-1 text-xs font-medium backdrop-blur">
-            Stranger
+            {partnerLabel}
           </span>
 
           {/* Connection quality */}

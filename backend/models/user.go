@@ -14,6 +14,7 @@ type User struct {
 	Avatar            string             `bson:"avatar"             json:"avatar"`
 	Username          string             `bson:"username"           json:"username"`
 	UsernameConfirmed bool               `bson:"usernameConfirmed"  json:"usernameConfirmed"`
+	ShowUsername      bool               `bson:"showUsername"       json:"showUsername"`
 	TermsAccepted     bool               `bson:"termsAccepted"      json:"termsAccepted"`
 	TermsAcceptedAt   *time.Time         `bson:"termsAcceptedAt"    json:"termsAcceptedAt"`
 	// Explicit, in-app Terms & Conditions acceptance (gated by a popup after signup).

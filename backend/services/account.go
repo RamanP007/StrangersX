@@ -99,6 +99,24 @@ func (h *AccountHub) ForceLogoutOthers(userID, keepSid string) {
 	}
 }
 
+// ForceLogoutAll logs out every connected session of userID with a distinct
+// "banned" message (rather than the generic force_logout), so the frontend can
+// show ban-specific copy. Used by the admin ban handler.
+func (h *AccountHub) ForceLogoutAll(userID string) {
+	h.mu.Lock()
+	var victims []*accountConn
+	for c := range h.conns[userID] {
+		victims = append(victims, c)
+	}
+	delete(h.conns, userID)
+	h.mu.Unlock()
+
+	for _, c := range victims {
+		_ = c.conn.WriteJSON(map[string]string{"type": "banned"})
+		c.conn.Close()
+	}
+}
+
 func parseAccountToken(tokenStr string) (userID, sid string, ok bool) {
 	type claims struct {
 		UserID string `json:"userId"`

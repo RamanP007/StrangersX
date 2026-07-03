@@ -122,7 +122,7 @@ func GoogleAuth(c *gin.Context) {
 	}
 
 	if user.Banned {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Your account has been banned."})
+		c.JSON(http.StatusForbidden, gin.H{"error": "You have been logged out — your account was banned for suspicious activity."})
 		return
 	}
 
@@ -156,6 +156,29 @@ func issueJWT(userID, email, sid string) (string, error) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(config.App.JWTSecret))
+}
+
+// CheckGoogleBanStatus reports whether the Google account is banned, keyed by
+// its Google subject id. Public and pre-auth by design: the frontend calls this
+// from the NextAuth `signIn` callback so a banned user's sign-in is refused
+// outright — no NextAuth session or backend JWT is ever issued for them.
+func CheckGoogleBanStatus(c *gin.Context) {
+	googleID := c.Query("googleId")
+	if googleID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "googleId is required"})
+		return
+	}
+
+	var user models.User
+	err := services.DB.Collection("users").
+		FindOne(context.Background(), bson.M{"googleId": googleID}).
+		Decode(&user)
+	if err != nil {
+		// Unknown account (first-time sign-in) — nothing to ban yet.
+		c.JSON(http.StatusOK, gin.H{"banned": false})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"banned": user.Banned})
 }
 
 func Me(c *gin.Context) {
