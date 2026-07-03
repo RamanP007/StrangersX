@@ -2,18 +2,20 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
+
+	"omegle-backend/config"
+	"omegle-backend/middleware"
+	"omegle-backend/models"
+	"omegle-backend/services"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"omegle-backend/config"
-	"omegle-backend/middleware"
-	"omegle-backend/models"
-	"omegle-backend/services"
 )
 
 type adminLoginRequest struct {
@@ -28,6 +30,7 @@ func AdminLogin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "username and password required"})
 		return
 	}
+	fmt.Println("Admin Username and Password", req.Username, req.Password, config.App.AdminUsername, config.App.AdminPassword, req.Username != config.App.AdminUsername, req.Password != config.App.AdminPassword)
 	if req.Username != config.App.AdminUsername || req.Password != config.App.AdminPassword {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
