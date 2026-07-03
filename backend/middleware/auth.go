@@ -15,6 +15,7 @@ type Claims struct {
 	Email   string `json:"email"`
 	SID     string `json:"sid"` // session id (one active session per user)
 	IsGuest bool   `json:"isGuest"`
+	Admin   bool   `json:"admin"`
 	jwt.RegisteredClaims
 }
 

@@ -74,6 +74,24 @@ services:
     networks:
       - app
 
+  admin:
+    build:
+      context: ./admin
+      target: runner
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8080
+    restart: unless-stopped
+    environment:
+      PORT: "3001"
+      HOSTNAME: "0.0.0.0"
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    ports:
+      - "3001:3001"
+    depends_on:
+      - backend
+    networks:
+      - app
+
 volumes:
   mongo_data:
   redis_data:

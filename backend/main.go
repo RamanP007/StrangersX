@@ -49,6 +49,18 @@ func main() {
 	{
 		api.POST("/auth/google", handlers.GoogleAuth)
 		api.POST("/guest/session", handlers.CreateGuestSession)
+		api.POST("/issues", handlers.SubmitIssue)
+		api.POST("/admin/login", handlers.AdminLogin)
+
+		admin := api.Group("/admin")
+		admin.Use(middleware.AdminAuth())
+		{
+			admin.GET("/stats", handlers.AdminStats)
+			admin.GET("/players", handlers.AdminPlayers)
+			admin.POST("/players/:id/ban", handlers.BanPlayer)
+			admin.POST("/players/:id/unban", handlers.UnbanPlayer)
+			admin.GET("/issues", handlers.AdminIssues)
+		}
 
 		protected := api.Group("")
 		protected.Use(middleware.AuthRequired())

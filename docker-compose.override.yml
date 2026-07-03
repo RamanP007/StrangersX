@@ -20,3 +20,16 @@ services:
       PORT: "3000"
       NEXT_PUBLIC_API_URL: http://localhost:8080
       NEXT_PUBLIC_SOCKET_URL: http://localhost:8080
+
+  admin:
+    build:
+      context: ./admin
+      target: deps
+    volumes:
+      - ./admin:/app
+      - /app/node_modules
+      - /app/.next
+    command: sh -c "npm install --legacy-peer-deps && npm run dev -- -H 0.0.0.0 -p 3001"
+    environment:
+      PORT: "3001"
+      NEXT_PUBLIC_API_URL: http://localhost:8080

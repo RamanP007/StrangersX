@@ -15,6 +15,8 @@ type Config struct {
 	JWTSecret      string
 	GoogleClientID string
 	AllowedOrigins []string
+	AdminUsername  string
+	AdminPassword  string
 }
 
 var App Config
@@ -30,6 +32,8 @@ func Load() {
 		JWTSecret:      mustGetEnv("JWT_SECRET"),
 		GoogleClientID: mustGetEnv("GOOGLE_CLIENT_ID"),
 		AllowedOrigins: resolveAllowedOrigins(),
+		AdminUsername:  getEnv("ADMIN_USERNAME", "admin"),
+		AdminPassword:  getEnv("ADMIN_PASSWORD", "admin"),
 	}
 }
 
@@ -50,7 +54,10 @@ func resolveAllowedOrigins() []string {
 	if v := strings.TrimSpace(os.Getenv("FRONTEND_URL")); v != "" {
 		return []string{strings.TrimRight(v, "/")}
 	}
-	return []string{"http://localhost:3000", "http://frontend:3000"}
+	return []string{
+		"http://localhost:3000", "http://frontend:3000",
+		"http://localhost:3001", "http://admin:3001",
+	}
 }
 
 // resolveRedisURI prefers REDIS_URI (a full redis:// or rediss:// connection

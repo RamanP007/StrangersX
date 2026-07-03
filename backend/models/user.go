@@ -21,4 +21,6 @@ type User struct {
 	TermsAndConditionAcceptedAt *time.Time `bson:"termsAndConditionAcceptedAt" json:"termsAndConditionAcceptedAt"`
 	CreatedAt         time.Time          `bson:"createdAt"          json:"createdAt"`
 	ReportCount       int                `bson:"reportCount"        json:"reportCount"`
+	Banned            bool               `bson:"banned"             json:"banned"`
+	BannedAt          *time.Time         `bson:"bannedAt"           json:"bannedAt"`
 }

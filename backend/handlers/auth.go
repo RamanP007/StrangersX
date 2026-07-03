@@ -121,6 +121,11 @@ func GoogleAuth(c *gin.Context) {
 		_ = collection.FindOneAndUpdate(ctx, filter, backfill, opts).Decode(&user)
 	}
 
+	if user.Banned {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Your account has been banned."})
+		return
+	}
+
 	// One active session per user. The session id is derived from the Google
 	// token, so the same browser/login shares it across tabs, but a new
 	// device/login supersedes the previous one.
