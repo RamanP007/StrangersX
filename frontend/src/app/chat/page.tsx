@@ -31,6 +31,7 @@ export default function ChatPage() {
   const [showReport, setShowReport] = useState(false)
   const [started, setStarted] = useState(false)
   const [videoStartCameraOff, setVideoStartCameraOff] = useState(false)
+  const [videoStartMuted, setVideoStartMuted] = useState(false)
 
   const profile = authUser
 
@@ -97,6 +98,7 @@ export default function ChatPage() {
     peerActive: isMatched && activeChatType === 'video',
     initiator,
     startCameraOff: videoStartCameraOff,
+    startMuted: videoStartMuted,
     sendSignal,
     setSignalHandler,
   })
@@ -104,12 +106,16 @@ export default function ChatPage() {
   // The server confirms every chat-type switch (whichever side clicked) with
   // this event, so both sides react identically off the same trigger — and a
   // switch the server rejected (e.g. the partner is a guest) never changes
-  // anything locally since no event arrives.
+  // anything locally since no event arrives. Switching text→video starts both
+  // camera and mic off for both participants, initiator included — nobody
+  // lands on camera/hot-mic without choosing to enable it.
   useEffect(() => {
     if (!chatTypeSwitch) return
     setChatType(chatTypeSwitch.chatType)
-    setVideoStartCameraOff(chatTypeSwitch.chatType === 'video' && !chatTypeSwitch.initiator)
-    toast(chatTypeSwitch.chatType === 'video' ? 'Switched to Video Chat' : 'Switched to Text Chat')
+    const enteringVideo = chatTypeSwitch.chatType === 'video'
+    setVideoStartCameraOff(enteringVideo)
+    setVideoStartMuted(enteringVideo)
+    toast(chatTypeSwitch.chatType === 'video' ? 'Switched to Video Chat' : 'Switched to Text Chat', { duration: 1500 })
   }, [chatTypeSwitch])
 
   function handleSwitchToVideo() { switchChatType('video') }
@@ -135,10 +141,11 @@ export default function ChatPage() {
   function handleStart() {
     setStarted(true)
     setVideoStartCameraOff(false)
+    setVideoStartMuted(false)
     if (chatType === 'text') joinQueue(interests, mode, 'text')
   }
-  function handleSkip() { skip(); setVideoStartCameraOff(false); joinQueue(interests, mode, chatType) }
-  function handleStop() { stop(); setStarted(false); setVideoStartCameraOff(false) }
+  function handleSkip() { skip(); setVideoStartCameraOff(false); setVideoStartMuted(false); joinQueue(interests, mode, chatType) }
+  function handleStop() { stop(); setStarted(false); setVideoStartCameraOff(false); setVideoStartMuted(false) }
 
   const isSearching = status === 'searching'
   const isIdle = status === 'idle' || status === 'disconnected'
@@ -152,8 +159,8 @@ export default function ChatPage() {
           /* ── Full-screen video layout (chat sidebar on desktop/tablet, stacked on mobile) ── */
           <div className="flex h-[calc(100dvh-4rem)] flex-col">
             {/* Control bar */}
-            <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
-              <div className="flex items-center gap-2 text-sm">
+            <div className="flex items-center justify-between gap-2 overflow-x-auto border-b border-border px-4 py-2">
+              <div className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap text-sm">
                 {isMatched ? (
                   reconnecting ? (
                     <>
@@ -168,7 +175,10 @@ export default function ChatPage() {
                   ) : (
                     <>
                       <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                      <span className="font-medium text-foreground">Connected · Video</span>
+                      <span className="font-medium text-foreground">
+                        <span className="hidden sm:inline">Connected · Video</span>
+                        <span className="sm:hidden">Video</span>
+                      </span>
                     </>
                   )
                 ) : status === 'disconnected' ? (
@@ -183,13 +193,14 @@ export default function ChatPage() {
                   </>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap">
                 {status === 'disconnected' && (
                   <button onClick={handleSkip} className="btn px-4 py-1.5 text-sm">Find new</button>
                 )}
                 {isMatched && isSignedIn && !partnerIsGuest && activeChatType === 'video' && (
-                  <button onClick={handleSwitchToText} className="btn-outline flex items-center gap-1.5 px-3 py-1.5 text-sm">
-                    <MessageSquare size={14} /> Switch to text
+                  <button onClick={handleSwitchToText} aria-label="Switch to text"
+                    className="btn-outline flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-sm">
+                    <MessageSquare size={14} /> <span className="hidden sm:inline">Switch to text</span>
                   </button>
                 )}
                 {isMatched && (
@@ -233,8 +244,8 @@ export default function ChatPage() {
           <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 px-4 py-6">
             {/* Status bar (matched) */}
             {isMatched && (
-              <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-2.5">
-                <div className="flex items-center gap-2 text-sm">
+              <div className="flex items-center justify-between gap-2 overflow-x-auto rounded-xl border border-border bg-card px-4 py-2.5">
+                <div className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap text-sm">
                   {reconnecting ? (
                     <>
                       <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
@@ -252,10 +263,11 @@ export default function ChatPage() {
                     </>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap">
                   {isSignedIn && !partnerIsGuest && activeChatType === 'text' && (
-                    <button onClick={handleSwitchToVideo} className="btn-outline flex items-center gap-1.5 px-3 py-1 text-sm">
-                      <Video size={14} /> Switch to video
+                    <button onClick={handleSwitchToVideo} aria-label="Switch to video"
+                      className="btn-outline flex items-center gap-1.5 whitespace-nowrap px-3 py-1 text-sm">
+                      <Video size={14} /> <span className="hidden sm:inline">Switch to video</span>
                     </button>
                   )}
                   <button onClick={handleSkip} className="btn-outline px-3 py-1 text-sm">Skip</button>

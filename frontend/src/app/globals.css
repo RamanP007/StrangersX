@@ -51,6 +51,22 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* Text selection/copying is disabled site-wide (chat content shouldn't be
+     scraped or copy-pasted) — inputs/textareas stay selectable so people can
+     still edit their own drafted message before sending. */
+  * {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
+  }
+  input,
+  textarea,
+  [contenteditable='true'] {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    user-select: text;
+  }
+
   /* Minimal scrollbar */
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }

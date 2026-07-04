@@ -46,12 +46,13 @@ interface Options {
   mediaActive: boolean // acquire & keep the local camera (video mode active)
   peerActive: boolean  // matched: establish the peer connection
   initiator: boolean
-  startCameraOff?: boolean // when acquiring media, immediately disable the video track (mid-chat switch initiated by the partner)
+  startCameraOff?: boolean // when acquiring media, immediately disable the video track (mid-chat switch)
+  startMuted?: boolean // when acquiring media, immediately disable the audio track (mid-chat switch)
   sendSignal: (type: SignalMessage['type'], data: any) => void
   setSignalHandler: (fn: ((msg: SignalMessage) => void) | null) => void
 }
 
-export function useWebRTC({ mediaActive, peerActive, initiator, startCameraOff = false, sendSignal, setSignalHandler }: Options) {
+export function useWebRTC({ mediaActive, peerActive, initiator, startCameraOff = false, startMuted = false, sendSignal, setSignalHandler }: Options) {
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
@@ -69,6 +70,8 @@ export function useWebRTC({ mediaActive, peerActive, initiator, startCameraOff =
   const prevLossRef = useRef<{ lost: number; recv: number }>({ lost: 0, recv: 0 })
   const startCameraOffRef = useRef(startCameraOff)
   useEffect(() => { startCameraOffRef.current = startCameraOff }, [startCameraOff])
+  const startMutedRef = useRef(startMuted)
+  useEffect(() => { startMutedRef.current = startMuted }, [startMuted])
 
   // Hard-stops the camera/mic and releases the device (turns off the camera light).
   const stopLocalMedia = useCallback(() => {
@@ -100,6 +103,10 @@ export function useWebRTC({ mediaActive, peerActive, initiator, startCameraOff =
         if (startCameraOffRef.current) {
           stream.getVideoTracks().forEach(t => { t.enabled = false })
           setCameraOff(true)
+        }
+        if (startMutedRef.current) {
+          stream.getAudioTracks().forEach(t => { t.enabled = false })
+          setMuted(true)
         }
         if (localVideoRef.current) localVideoRef.current.srcObject = stream
         setMediaReady(true)

@@ -219,10 +219,24 @@ export function useSocket(token: string | null) {
       }
     }
 
+    // Deliberately leaving (navigating to another route, closing the tab) is
+    // not a network blip — tell the server immediately so it skips the
+    // reconnect grace window and tells the partner right away instead of
+    // showing "reconnecting" for up to 10s.
+    function sendLeave() {
+      const ws = wsRef.current
+      if (ws && ws.readyState === WebSocket.OPEN && statusRef.current === 'matched') {
+        try { ws.send(JSON.stringify({ type: 'leave' })) } catch { /* ignore */ }
+      }
+    }
+
     connect()
+    window.addEventListener('pagehide', sendLeave)
 
     return () => {
       closedByUs = true
+      window.removeEventListener('pagehide', sendLeave)
+      sendLeave()
       clearTimeout(reconnectTimer)
       clearInterval(keepAlive)
       wsRef.current?.close()

@@ -20,7 +20,7 @@ import (
 // ─── Message protocol ────────────────────────────────────────────────────────
 
 type InMsg struct {
-	Type      string          `json:"type"` // join_queue | message | skip | typing | stop_typing | ping | switch_chat_type | webrtc_*
+	Type      string          `json:"type"` // join_queue | message | skip | leave | typing | stop_typing | ping | switch_chat_type | webrtc_*
 	Text      string          `json:"text"`
 	Interests []string        `json:"interests"`
 	Mode      string          `json:"mode"`      // random | interests
@@ -392,6 +392,14 @@ func (c *Client) handle(ctx context.Context, msg InMsg) {
 		c.leaveCurrentRoom(ctx)
 		LeaveQueue(ctx, c.id)
 		c.hub.Send(c.id, OutMsg{Type: "skipped"})
+
+	case "leave":
+		// Client is navigating away deliberately (home, another route, tab
+		// close) — end the room immediately instead of waiting out the
+		// reconnect grace window, so the partner isn't left thinking it's a
+		// network blip.
+		c.leaveCurrentRoom(ctx)
+		LeaveQueue(ctx, c.id)
 
 	case "resume":
 		// Client reconnected mid-chat: if its room survived the grace window,
