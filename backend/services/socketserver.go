@@ -383,7 +383,10 @@ func (c *Client) handle(ctx context.Context, msg InMsg) {
 		c.relayToPartner(ctx, OutMsg{Type: msg.Type, Data: msg.Data})
 
 	case "switch_chat_type":
-		c.switchToVideo(ctx)
+		target := msg.ChatType
+		if target == "text" || target == "video" {
+			c.switchChatType(ctx, target)
+		}
 
 	case "skip":
 		c.leaveCurrentRoom(ctx)
@@ -420,10 +423,10 @@ func (c *Client) relayToPartner(ctx context.Context, out OutMsg) {
 	c.hub.Send(partnerID, out)
 }
 
-// switchToVideo flips the current room to video chat, but only when both
-// participants are logged-in (non-guest) users — enforced server-side so a
-// tampered client can't force a guest partner into video.
-func (c *Client) switchToVideo(ctx context.Context) {
+// switchChatType flips the current room between text and video, but only when
+// both participants are logged-in (non-guest) users — enforced server-side so
+// a tampered client can't force a guest partner into video.
+func (c *Client) switchChatType(ctx context.Context, target string) {
 	if c.isGuest {
 		return
 	}
@@ -439,11 +442,11 @@ func (c *Client) switchToVideo(ctx context.Context) {
 	if !ok || partnerClient.isGuest {
 		return
 	}
-	if !SetRoomChatType(ctx, roomID, "video") {
+	if !SetRoomChatType(ctx, roomID, target) {
 		return
 	}
-	c.hub.Send(c.id, OutMsg{Type: "chat_type_changed", ChatType: "video", Initiator: true})
-	c.hub.Send(partnerID, OutMsg{Type: "chat_type_changed", ChatType: "video", Initiator: false})
+	c.hub.Send(c.id, OutMsg{Type: "chat_type_changed", ChatType: target, Initiator: true})
+	c.hub.Send(partnerID, OutMsg{Type: "chat_type_changed", ChatType: target, Initiator: false})
 }
 
 func (c *Client) leaveCurrentRoom(ctx context.Context) {

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, KeyboardEvent } from 'react'
 import dynamic from 'next/dynamic'
 import { useTheme } from 'next-themes'
 import type { Message, ReplyRef } from '@/types'
-import { Theme, type EmojiClickData } from 'emoji-picker-react'
+import type { Theme, EmojiClickData } from 'emoji-picker-react'
 import { Send, Smile, Reply, X } from './icons'
 
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false })
@@ -184,7 +184,7 @@ export function ChatBox({ messages, onSend, onTyping, partnerTyping = false, dis
               <div className="absolute bottom-full left-0 z-20 mb-2 animate-fade-in">
                 <EmojiPicker
                   onEmojiClick={(data: EmojiClickData) => addEmoji(data.emoji)}
-                  theme={resolvedTheme === 'light' ? Theme.LIGHT : Theme.DARK}
+                  theme={(resolvedTheme === 'light' ? 'light' : 'dark') as Theme}
                   height={360}
                   width={300}
                   searchDisabled={false}

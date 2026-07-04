@@ -81,9 +81,9 @@ export default function ChatPage() {
   const {
     status, messages, roomId, initiator, activeChatType, partnerTyping,
     reconnecting, partnerReconnecting,
-    partnerSocketId, partnerIsGuest, partnerUsername, partnerSwitchedToVideo,
+    partnerSocketId, partnerIsGuest, partnerUsername, chatTypeSwitch,
     joinQueue, sendMessage, sendTyping, skip, stop,
-    switchChatType, clearPartnerSwitchNotice,
+    switchChatType,
     sendSignal, setSignalHandler,
   } = useSocket(token)
 
@@ -101,22 +101,19 @@ export default function ChatPage() {
     setSignalHandler,
   })
 
-  // Partner switched a live text chat to video: follow them into the video
-  // layout, but start with our camera off until we choose to enable it.
+  // The server confirms every chat-type switch (whichever side clicked) with
+  // this event, so both sides react identically off the same trigger — and a
+  // switch the server rejected (e.g. the partner is a guest) never changes
+  // anything locally since no event arrives.
   useEffect(() => {
-    if (partnerSwitchedToVideo) {
-      setChatType('video')
-      setVideoStartCameraOff(true)
-      toast(`${partnerLabel} switched to video chat`)
-      clearPartnerSwitchNotice()
-    }
-  }, [partnerSwitchedToVideo, partnerLabel, clearPartnerSwitchNotice])
+    if (!chatTypeSwitch) return
+    setChatType(chatTypeSwitch.chatType)
+    setVideoStartCameraOff(chatTypeSwitch.chatType === 'video' && !chatTypeSwitch.initiator)
+    toast(chatTypeSwitch.chatType === 'video' ? 'Switched to Video Chat' : 'Switched to Text Chat')
+  }, [chatTypeSwitch])
 
-  function handleSwitchToVideo() {
-    setVideoStartCameraOff(false)
-    setChatType('video')
-    switchChatType()
-  }
+  function handleSwitchToVideo() { switchChatType('video') }
+  function handleSwitchToText() { switchChatType('text') }
 
   const videoJoinedRef = useRef(false)
   useEffect(() => {
@@ -189,6 +186,11 @@ export default function ChatPage() {
               <div className="flex items-center gap-2">
                 {status === 'disconnected' && (
                   <button onClick={handleSkip} className="btn px-4 py-1.5 text-sm">Find new</button>
+                )}
+                {isMatched && isSignedIn && !partnerIsGuest && activeChatType === 'video' && (
+                  <button onClick={handleSwitchToText} className="btn-outline flex items-center gap-1.5 px-3 py-1.5 text-sm">
+                    <MessageSquare size={14} /> Switch to text
+                  </button>
                 )}
                 {isMatched && (
                   <button onClick={handleSkip} className="btn-outline px-3 py-1.5 text-sm">Skip</button>

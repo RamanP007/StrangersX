@@ -45,7 +45,8 @@ export function useSocket(token: string | null) {
   const [partnerSocketId, setPartnerSocketId] = useState<string | null>(null)
   const [partnerIsGuest, setPartnerIsGuest] = useState(true)
   const [partnerUsername, setPartnerUsername] = useState<string | null>(null)
-  const [partnerSwitchedToVideo, setPartnerSwitchedToVideo] = useState(false)
+  const [chatTypeSwitch, setChatTypeSwitch] = useState<{ chatType: ChatType; initiator: boolean; seq: number } | null>(null)
+  const switchSeqRef = useRef(0)
 
   // Keep a ref in sync so socket callbacks can read the latest status.
   useEffect(() => { statusRef.current = status }, [status])
@@ -141,14 +142,16 @@ export function useSocket(token: string | null) {
           setPartnerSocketId(msg.partnerId ?? null)
           setPartnerIsGuest(msg.partnerIsGuest ?? true)
           setPartnerUsername(msg.partnerUsername || null)
-          setPartnerSwitchedToVideo(false)
+          setChatTypeSwitch(null)
           playMatchSound() // chime on match (text + video)
           break
-        case 'chat_type_changed':
-          activeChatTypeRef.current = msg.chatType ?? 'video'
-          setActiveChatType(msg.chatType ?? 'video')
-          if (!msg.initiator) setPartnerSwitchedToVideo(true)
+        case 'chat_type_changed': {
+          const chatType = msg.chatType ?? 'video'
+          activeChatTypeRef.current = chatType
+          setActiveChatType(chatType)
+          setChatTypeSwitch({ chatType, initiator: Boolean(msg.initiator), seq: ++switchSeqRef.current })
           break
+        }
         case 'resumed':
           // Back in the same room after a blip — conversation continues.
           setRoomId(msg.roomId ?? null)
@@ -196,7 +199,7 @@ export function useSocket(token: string | null) {
           setRoomId(null)
           setPartnerTyping(false)
           setPartnerReconnecting(false)
-          setPartnerSwitchedToVideo(false)
+          setChatTypeSwitch(null)
           break
         case 'queued':
           setStatus('searching')
@@ -210,7 +213,7 @@ export function useSocket(token: string | null) {
           setPartnerSocketId(null)
           setPartnerIsGuest(true)
           setPartnerUsername(null)
-          setPartnerSwitchedToVideo(false)
+          setChatTypeSwitch(null)
           break
       }
       }
@@ -271,16 +274,14 @@ export function useSocket(token: string | null) {
     setPartnerSocketId(null)
     setPartnerIsGuest(true)
     setPartnerUsername(null)
-    setPartnerSwitchedToVideo(false)
+    setChatTypeSwitch(null)
   }, [send])
 
   const stop = useCallback(() => skip(), [skip])
 
-  const switchChatType = useCallback(() => {
-    send({ type: 'switch_chat_type' })
+  const switchChatType = useCallback((target: ChatType) => {
+    send({ type: 'switch_chat_type', chatType: target })
   }, [send])
-
-  const clearPartnerSwitchNotice = useCallback(() => setPartnerSwitchedToVideo(false), [])
 
   // WebRTC helpers
   const sendSignal = useCallback((type: SignalMessage['type'], data: any) => {
@@ -299,9 +300,9 @@ export function useSocket(token: string | null) {
   return {
     status, messages, roomId, initiator, activeChatType, partnerTyping,
     reconnecting, partnerReconnecting,
-    partnerSocketId, partnerIsGuest, partnerUsername, partnerSwitchedToVideo,
+    partnerSocketId, partnerIsGuest, partnerUsername, chatTypeSwitch,
     joinQueue, sendMessage, sendTyping, skip, stop,
-    switchChatType, clearPartnerSwitchNotice,
+    switchChatType,
     sendSignal, setSignalHandler,
   }
 }
