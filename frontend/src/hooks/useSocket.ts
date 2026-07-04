@@ -263,6 +263,22 @@ export function useSocket(token: string | null) {
     send({ type: 'join_queue', interests, mode, chatType })
   }, [send])
 
+  // The backend only attempts a match inside the join_queue handler itself —
+  // there's no server-side timer that retries for an already-waiting client.
+  // A client stuck "searching" is otherwise matched only if some OTHER client
+  // happens to call join_queue later and finds them in the Redis queue. This
+  // periodically re-sends join_queue while searching so a stuck wait recovers
+  // on its own — safe to repeat since the handler always leaves any current
+  // queue entry (LeaveQueue) before re-matching/re-queueing, so it can't pile
+  // up duplicate entries.
+  useEffect(() => {
+    if (status !== 'searching') return
+    const retry = setInterval(() => {
+      if (wantQueueRef.current) send({ type: 'join_queue', ...wantQueueRef.current })
+    }, 6000)
+    return () => clearInterval(retry)
+  }, [status, send])
+
   const sendMessage = useCallback((text: string, reply?: ReplyRef) => {
     if (status !== 'matched') return
     send({ type: 'message', text, replyText: reply?.text, replyMine: reply?.mine })
