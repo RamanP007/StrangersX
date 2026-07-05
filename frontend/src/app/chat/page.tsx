@@ -14,7 +14,7 @@ import { UsernamePopup } from '@/components/UsernamePopup'
 import { useSocket } from '@/hooks/useSocket'
 import { useWebRTC } from '@/hooks/useWebRTC'
 import { useBackendAuth } from '@/components/BackendAuthProvider'
-import { MessageSquare, Video, Shuffle, Target, Lock } from '@/components/icons'
+import { MessageSquare, Video, Shuffle, Target, Lock, MoreVertical, Clock, Layout, Flag, LogOut } from '@/components/icons'
 import type { MatchMode, ChatType } from '@/types'
 
 export default function ChatPage() {
@@ -32,6 +32,9 @@ export default function ChatPage() {
   const [started, setStarted] = useState(false)
   const [videoStartCameraOff, setVideoStartCameraOff] = useState(false)
   const [videoStartMuted, setVideoStartMuted] = useState(false)
+  const [videoLayout, setVideoLayout] = useState<'split' | 'fullscreen'>('split')
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const profile = authUser
 
@@ -83,8 +86,9 @@ export default function ChatPage() {
     status, messages, roomId, initiator, activeChatType, partnerTyping,
     reconnecting, partnerReconnecting,
     partnerSocketId, partnerIsGuest, partnerUsername, chatTypeSwitch,
+    matchedAt, partnerMuted, partnerCameraOff,
     joinQueue, sendMessage, sendTyping, skip, stop,
-    switchChatType,
+    switchChatType, sendMediaState,
     sendSignal, setSignalHandler,
   } = useSocket(token)
 
@@ -120,6 +124,33 @@ export default function ChatPage() {
 
   function handleSwitchToVideo() { switchChatType('video') }
   function handleSwitchToText() { switchChatType('text') }
+
+  // Call timer (video only, counting from match). Ticks every second.
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (!matchedAt) { setElapsed(0); return }
+    setElapsed(Math.floor((Date.now() - matchedAt) / 1000))
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - matchedAt) / 1000)), 1000)
+    return () => clearInterval(t)
+  }, [matchedAt])
+  const timerLabel = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`
+
+  // Broadcast my mic/camera state to the partner so they see an indicator.
+  useEffect(() => {
+    if (isMatched && activeChatType === 'video') {
+      sendMediaState(webrtc.muted, webrtc.cameraOff)
+    }
+  }, [isMatched, activeChatType, webrtc.muted, webrtc.cameraOff, sendMediaState])
+
+  // Close the mobile three-dots menu on outside click.
+  useEffect(() => {
+    if (!menuOpen) return
+    function onDoc(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [menuOpen])
 
   const videoJoinedRef = useRef(false)
   useEffect(() => {
@@ -176,8 +207,11 @@ export default function ChatPage() {
                     <>
                       <span className="h-2 w-2 rounded-full bg-emerald-500" />
                       <span className="font-medium text-foreground">
-                        <span className="hidden sm:inline">Connected · Video</span>
-                        <span className="sm:hidden">Video</span>
+                        <span className="hidden sm:inline">Connected · {partnerLabel}</span>
+                        <span className="sm:hidden">{partnerLabel}</span>
+                      </span>
+                      <span className="flex items-center gap-1 text-muted-foreground">
+                        <Clock size={13} /> <span className="tabular-nums">{timerLabel}</span>
                       </span>
                     </>
                   )
@@ -197,19 +231,60 @@ export default function ChatPage() {
                 {status === 'disconnected' && (
                   <button onClick={handleSkip} className="btn px-4 py-1.5 text-sm">Find new</button>
                 )}
-                {isMatched && isSignedIn && !partnerIsGuest && activeChatType === 'video' && (
-                  <button onClick={handleSwitchToText} aria-label="Switch to text"
-                    className="btn-outline flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-sm">
-                    <MessageSquare size={14} /> <span className="hidden sm:inline">Switch to text</span>
-                  </button>
-                )}
-                {isMatched && (
-                  <button onClick={handleSkip} className="btn-outline px-3 py-1.5 text-sm">Skip</button>
-                )}
-                {isMatched && (
-                  <button onClick={() => setShowReport(true)} className="btn-outline px-3 py-1.5 text-sm">Report</button>
-                )}
-                <button onClick={handleStop} className="btn-outline px-3 py-1.5 text-sm">Stop</button>
+
+                {/* Desktop: full button row */}
+                <div className="hidden items-center gap-2 lg:flex">
+                  {isMatched && isSignedIn && !partnerIsGuest && activeChatType === 'video' && (
+                    <button onClick={handleSwitchToText} aria-label="Switch to text"
+                      className="btn-outline flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-sm">
+                      <MessageSquare size={14} /> Switch to text
+                    </button>
+                  )}
+                  {isMatched && (
+                    <button onClick={handleSkip} className="btn-outline px-3 py-1.5 text-sm">Skip</button>
+                  )}
+                  {isMatched && (
+                    <button onClick={() => setShowReport(true)} className="btn-outline px-3 py-1.5 text-sm">Report</button>
+                  )}
+                  <button onClick={handleStop} className="btn-outline px-3 py-1.5 text-sm">Stop</button>
+                </div>
+
+                {/* Mobile: Skip + three-dots menu */}
+                <div className="flex items-center gap-2 lg:hidden">
+                  {isMatched && (
+                    <button onClick={handleSkip} className="btn-outline px-3 py-1.5 text-sm">Skip</button>
+                  )}
+                  <div ref={menuRef} className="relative">
+                    <button onClick={() => setMenuOpen(o => !o)} aria-label="More options" aria-haspopup="menu" aria-expanded={menuOpen}
+                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-foreground transition-colors hover:bg-muted">
+                      <MoreVertical size={18} />
+                    </button>
+                    {menuOpen && (
+                      <div role="menu" className="absolute right-0 top-full z-30 mt-1 w-48 overflow-hidden rounded-xl border border-border bg-card p-1 shadow-xl animate-fade-in">
+                        {isMatched && (
+                          <button role="menuitem" onClick={() => { setMenuOpen(false); setShowReport(true) }}
+                            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted">
+                            <Flag size={16} className="text-muted-foreground" /> Report
+                          </button>
+                        )}
+                        {isMatched && isSignedIn && !partnerIsGuest && activeChatType === 'video' && (
+                          <button role="menuitem" onClick={() => { setMenuOpen(false); handleSwitchToText() }}
+                            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted">
+                            <MessageSquare size={16} className="text-muted-foreground" /> Switch to Chat
+                          </button>
+                        )}
+                        <button role="menuitem" onClick={() => { setMenuOpen(false); setVideoLayout(l => l === 'split' ? 'fullscreen' : 'split') }}
+                          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted">
+                          <Layout size={16} className="text-muted-foreground" /> Change layout
+                        </button>
+                        <button role="menuitem" onClick={() => { setMenuOpen(false); handleStop() }}
+                          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-destructive transition-colors hover:bg-destructive/10">
+                          <LogOut size={16} /> Stop
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -223,7 +298,6 @@ export default function ChatPage() {
                 onRetryMedia={webrtc.retryMedia}
                 connState={webrtc.connState}
                 quality={webrtc.quality}
-                latencyMs={webrtc.latencyMs}
                 searching={status !== 'matched' && status !== 'disconnected'}
                 partnerLeft={status === 'disconnected'}
                 muted={webrtc.muted}
@@ -236,6 +310,9 @@ export default function ChatPage() {
                 partnerTyping={partnerTyping}
                 chatDisabled={status !== 'matched'}
                 partnerLabel={partnerLabel}
+                partnerMuted={partnerMuted}
+                partnerCameraOff={partnerCameraOff}
+                layout={videoLayout}
               />
             </div>
           </div>

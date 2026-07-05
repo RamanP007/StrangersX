@@ -203,6 +203,34 @@ export const Spinner = ({ size = 20, className = '', ...props }: IconProps) => (
   </svg>
 )
 
+export const MoreVertical = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="5" r="1" />
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="12" cy="19" r="1" />
+  </svg>
+)
+
+export const Clock = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
+  </svg>
+)
+
+export const Layout = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M14 14h5v5h-5z" />
+  </svg>
+)
+
+export const Flag = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4 21V4a1 1 0 0 1 1-1h13l-3 5 3 5H5" />
+  </svg>
+)
+
 export const Google = ({ size = 18, ...props }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 48 48" {...props}>
     <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.5 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 20-9 20-20 0-1.3-.1-2.7-.4-3.5z" />

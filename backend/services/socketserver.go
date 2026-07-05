@@ -20,13 +20,16 @@ import (
 // ─── Message protocol ────────────────────────────────────────────────────────
 
 type InMsg struct {
-	Type      string          `json:"type"` // join_queue | message | skip | leave | typing | stop_typing | ping | switch_chat_type | webrtc_*
+	Type      string          `json:"type"` // join_queue | message | skip | leave | typing | stop_typing | ping | switch_chat_type | match_pong | media_state | webrtc_*
 	Text      string          `json:"text"`
 	Interests []string        `json:"interests"`
 	Mode      string          `json:"mode"`      // random | interests
 	ChatType  string          `json:"chatType"`  // text | video
 	ReplyText string          `json:"replyText"` // quoted message (reply)
 	ReplyMine bool            `json:"replyMine"` // was the quoted message sent by the sender?
+	MatchID   string          `json:"matchId"`   // match confirmation handshake id
+	Muted     bool            `json:"muted"`     // media_state: mic muted
+	CameraOff bool            `json:"cameraOff"` // media_state: camera off
 	Data      json.RawMessage `json:"data"`      // opaque WebRTC payload (SDP / ICE)
 }
 
@@ -43,6 +46,9 @@ type OutMsg struct {
 	PartnerID       string          `json:"partnerId,omitempty"`
 	PartnerIsGuest  bool            `json:"partnerIsGuest"`
 	PartnerUsername string          `json:"partnerUsername,omitempty"`
+	MatchID         string          `json:"matchId,omitempty"`
+	Muted           bool            `json:"muted,omitempty"`
+	CameraOff       bool            `json:"cameraOff,omitempty"`
 	Data            json.RawMessage `json:"data,omitempty"`
 }
 
@@ -334,30 +340,15 @@ func (c *Client) handle(ctx context.Context, msg InMsg) {
 			chatType = "text"
 		}
 
+		// Re-joining cancels any in-flight match handshake this socket was in.
+		clearPendingForSocket(c.id)
+
 		partnerID, matched := TryMatch(ctx, c.id, msg.Interests, mode, chatType)
 		if matched {
 			LeaveQueue(ctx, partnerID)
-			roomID := uuid.New().String()
-			CreateRoom(ctx, roomID, c.id, partnerID, chatType)
-			SetSocketRoom(ctx, c.id, roomID)
-			SetSocketRoom(ctx, partnerID, roomID)
-
-			partnerClient, _ := c.hub.getClient(partnerID)
-			partnerIsGuest := partnerClient == nil || partnerClient.isGuest
-			partnerUsernameForC := ""
-			if partnerClient != nil && !partnerClient.isGuest && partnerClient.showUsername {
-				partnerUsernameForC = partnerClient.username
-			}
-			selfUsernameForPartner := ""
-			if !c.isGuest && c.showUsername {
-				selfUsernameForPartner = c.username
-			}
-
-			// The matcher (c) becomes the WebRTC initiator; the partner answers.
-			c.hub.Send(c.id, OutMsg{Type: "matched", RoomID: roomID, ChatType: chatType, Initiator: true,
-				PartnerID: partnerID, PartnerIsGuest: partnerIsGuest, PartnerUsername: partnerUsernameForC})
-			c.hub.Send(partnerID, OutMsg{Type: "matched", RoomID: roomID, ChatType: chatType, Initiator: false,
-				PartnerID: c.id, PartnerIsGuest: c.isGuest, PartnerUsername: selfUsernameForPartner})
+			// Don't create the room yet — first confirm both sockets are alive
+			// via a ping/pong handshake (beginPendingMatch → finalizeMatch).
+			beginPendingMatch(c.id, partnerID, chatType)
 		} else {
 			JoinQueue(ctx, c.id, msg.Interests, mode, chatType)
 			c.hub.Send(c.id, OutMsg{Type: "queued", Status: "searching"})
@@ -388,7 +379,16 @@ func (c *Client) handle(ctx context.Context, msg InMsg) {
 			c.switchChatType(ctx, target)
 		}
 
+	case "match_pong":
+		// Confirmation that this socket is alive for a proposed match.
+		handleMatchPong(c.id, msg.MatchID)
+
+	case "media_state":
+		// Relay mic/camera on-off state so the partner can show an indicator.
+		c.relayToPartner(ctx, OutMsg{Type: "media_state", Muted: msg.Muted, CameraOff: msg.CameraOff})
+
 	case "skip":
+		clearPendingForSocket(c.id)
 		c.leaveCurrentRoom(ctx)
 		LeaveQueue(ctx, c.id)
 		c.hub.Send(c.id, OutMsg{Type: "skipped"})
@@ -398,6 +398,7 @@ func (c *Client) handle(ctx context.Context, msg InMsg) {
 		// close) — end the room immediately instead of waiting out the
 		// reconnect grace window, so the partner isn't left thinking it's a
 		// network blip.
+		clearPendingForSocket(c.id)
 		c.leaveCurrentRoom(ctx)
 		LeaveQueue(ctx, c.id)
 
@@ -457,6 +458,40 @@ func (c *Client) switchChatType(ctx context.Context, target string) {
 	c.hub.Send(partnerID, OutMsg{Type: "chat_type_changed", ChatType: target, Initiator: false})
 }
 
+// finalizeMatch creates the room and notifies both sockets once the match
+// confirmation handshake has succeeded. s1 is the matcher (WebRTC initiator);
+// s2 answers. If either socket vanished between pong and finalize, it aborts.
+func finalizeMatch(ctx context.Context, s1, s2, chatType string) {
+	c1, ok1 := GlobalHub.getClient(s1)
+	c2, ok2 := GlobalHub.getClient(s2)
+	if !ok1 || !ok2 {
+		if ok1 {
+			GlobalHub.Send(s1, OutMsg{Type: "match_cancelled"})
+		}
+		if ok2 {
+			GlobalHub.Send(s2, OutMsg{Type: "match_cancelled"})
+		}
+		return
+	}
+
+	roomID := uuid.New().String()
+	CreateRoom(ctx, roomID, s1, s2, chatType)
+	SetSocketRoom(ctx, s1, roomID)
+	SetSocketRoom(ctx, s2, roomID)
+
+	usernameFor := func(c *Client) string {
+		if !c.isGuest && c.showUsername {
+			return c.username
+		}
+		return ""
+	}
+
+	GlobalHub.Send(s1, OutMsg{Type: "matched", RoomID: roomID, ChatType: chatType, Initiator: true,
+		PartnerID: s2, PartnerIsGuest: c2.isGuest, PartnerUsername: usernameFor(c2)})
+	GlobalHub.Send(s2, OutMsg{Type: "matched", RoomID: roomID, ChatType: chatType, Initiator: false,
+		PartnerID: s1, PartnerIsGuest: c1.isGuest, PartnerUsername: usernameFor(c1)})
+}
+
 func (c *Client) leaveCurrentRoom(ctx context.Context) {
 	roomID, ok := GetSocketRoom(ctx, c.id)
 	if !ok {
@@ -477,6 +512,8 @@ const resumeGrace = 10 * time.Second
 
 func (c *Client) handleDisconnect(ctx context.Context) {
 	LeaveQueue(ctx, c.id)
+	// Dropping mid-handshake cancels the proposed match for the partner.
+	clearPendingForSocket(c.id)
 
 	roomID, ok := GetSocketRoom(ctx, c.id)
 	if !ok {

@@ -19,6 +19,9 @@ interface OutMsg {
   partnerId?: string
   partnerIsGuest?: boolean
   partnerUsername?: string
+  matchId?: string
+  muted?: boolean
+  cameraOff?: boolean
   data?: any
 }
 
@@ -47,6 +50,9 @@ export function useSocket(token: string | null) {
   const [partnerUsername, setPartnerUsername] = useState<string | null>(null)
   const [chatTypeSwitch, setChatTypeSwitch] = useState<{ chatType: ChatType; initiator: boolean; seq: number } | null>(null)
   const switchSeqRef = useRef(0)
+  const [matchedAt, setMatchedAt] = useState<number | null>(null)
+  const [partnerMuted, setPartnerMuted] = useState(false)
+  const [partnerCameraOff, setPartnerCameraOff] = useState(false)
 
   // Keep a ref in sync so socket callbacks can read the latest status.
   useEffect(() => { statusRef.current = status }, [status])
@@ -143,7 +149,28 @@ export function useSocket(token: string | null) {
           setPartnerIsGuest(msg.partnerIsGuest ?? true)
           setPartnerUsername(msg.partnerUsername || null)
           setChatTypeSwitch(null)
+          setMatchedAt(Date.now())
+          setPartnerMuted(false)
+          setPartnerCameraOff(false)
           playMatchSound() // chime on match (text + video)
+          break
+        case 'match_ping':
+          // Confirmation handshake — reply immediately so the server knows we're
+          // alive; transparent to the UI (we stay in 'searching').
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'match_pong', matchId: msg.matchId }))
+          }
+          break
+        case 'match_cancelled':
+          // The proposed match fell through (partner didn't confirm) — re-queue
+          // right away instead of waiting for the periodic retry.
+          if (statusRef.current === 'searching' && wantQueueRef.current) {
+            wsRef.current?.send(JSON.stringify({ type: 'join_queue', ...wantQueueRef.current }))
+          }
+          break
+        case 'media_state':
+          setPartnerMuted(Boolean(msg.muted))
+          setPartnerCameraOff(Boolean(msg.cameraOff))
           break
         case 'chat_type_changed': {
           const chatType = msg.chatType ?? 'video'
@@ -200,6 +227,9 @@ export function useSocket(token: string | null) {
           setPartnerTyping(false)
           setPartnerReconnecting(false)
           setChatTypeSwitch(null)
+          setMatchedAt(null)
+          setPartnerMuted(false)
+          setPartnerCameraOff(false)
           break
         case 'queued':
           setStatus('searching')
@@ -214,6 +244,9 @@ export function useSocket(token: string | null) {
           setPartnerIsGuest(true)
           setPartnerUsername(null)
           setChatTypeSwitch(null)
+          setMatchedAt(null)
+          setPartnerMuted(false)
+          setPartnerCameraOff(false)
           break
       }
       }
@@ -305,12 +338,19 @@ export function useSocket(token: string | null) {
     setPartnerIsGuest(true)
     setPartnerUsername(null)
     setChatTypeSwitch(null)
+    setMatchedAt(null)
+    setPartnerMuted(false)
+    setPartnerCameraOff(false)
   }, [send])
 
   const stop = useCallback(() => skip(), [skip])
 
   const switchChatType = useCallback((target: ChatType) => {
     send({ type: 'switch_chat_type', chatType: target })
+  }, [send])
+
+  const sendMediaState = useCallback((muted: boolean, cameraOff: boolean) => {
+    send({ type: 'media_state', muted, cameraOff })
   }, [send])
 
   // WebRTC helpers
@@ -331,8 +371,9 @@ export function useSocket(token: string | null) {
     status, messages, roomId, initiator, activeChatType, partnerTyping,
     reconnecting, partnerReconnecting,
     partnerSocketId, partnerIsGuest, partnerUsername, chatTypeSwitch,
+    matchedAt, partnerMuted, partnerCameraOff,
     joinQueue, sendMessage, sendTyping, skip, stop,
-    switchChatType,
+    switchChatType, sendMediaState,
     sendSignal, setSignalHandler,
   }
 }

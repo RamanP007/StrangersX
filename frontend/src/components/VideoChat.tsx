@@ -18,7 +18,6 @@ interface Props {
   onRetryMedia: () => void
   connState: RTCConnState
   quality: Quality
-  latencyMs: number | null
   searching: boolean
   partnerLeft: boolean
   muted: boolean
@@ -31,6 +30,9 @@ interface Props {
   partnerTyping?: boolean
   chatDisabled: boolean
   partnerLabel?: string
+  partnerMuted?: boolean
+  partnerCameraOff?: boolean
+  layout?: 'split' | 'fullscreen'
 }
 
 function Overlay({ children }: { children: React.ReactNode }) {
@@ -41,22 +43,21 @@ function Overlay({ children }: { children: React.ReactNode }) {
   )
 }
 
-function NetworkBars({ quality, latencyMs }: { quality: Quality; latencyMs: number | null }) {
+// Signal-strength style bars only — no latency numbers or text labels. The
+// P2P link quality is a single connection metric, so the same reading is shown
+// on both the local and stranger tiles.
+function NetworkBars({ quality }: { quality: Quality }) {
   if (!quality) return null
   const active = quality === 'good' ? 4 : quality === 'fair' ? 3 : 1
   const color = quality === 'good' ? 'bg-emerald-500' : quality === 'fair' ? 'bg-amber-500' : 'bg-red-500'
   const heights = ['h-1.5', 'h-2', 'h-3', 'h-4']
   return (
-    <div className="flex items-center gap-1.5 rounded-full border border-border bg-background/70 px-2 py-1 backdrop-blur">
+    <div className="flex items-center rounded-full border border-border bg-background/70 px-2 py-1 backdrop-blur">
       <div className="flex items-end gap-[2px]">
         {heights.map((h, i) => (
           <span key={i} className={`w-1 rounded-sm ${h} ${i < active ? color : 'bg-foreground/20'}`} />
         ))}
       </div>
-      {latencyMs != null && (
-        <span className="text-[10px] font-medium tabular-nums text-foreground">{latencyMs}ms</span>
-      )}
-      {quality === 'poor' && <span className="text-[10px] font-medium text-red-500">Poor</span>}
     </div>
   )
 }
@@ -64,9 +65,10 @@ function NetworkBars({ quality, latencyMs }: { quality: Quality; latencyMs: numb
 export function VideoChat({
   localVideoRef, remoteVideoRef,
   mediaReady, mediaError, onRetryMedia,
-  connState, quality, latencyMs, searching, partnerLeft,
+  connState, quality, searching, partnerLeft,
   muted, cameraOff, onToggleMute, onToggleCamera,
   messages, onSend, onTyping, partnerTyping, chatDisabled, partnerLabel = 'Stranger',
+  partnerMuted = false, partnerCameraOff = false, layout = 'split',
 }: Props) {
   const [chatOpen, setChatOpen] = useState(false)
   const [unread, setUnread] = useState(0)
@@ -93,13 +95,42 @@ export function VideoChat({
     />
   )
 
+  // 'fullscreen' (mobile WhatsApp-style): stranger fills the screen, self is a
+  // corner PIP. On lg the video is always the side-by-side split with a chat
+  // sidebar, so the fullscreen tweaks are scoped to below lg.
+  const isFullscreen = layout === 'fullscreen'
+  const videoAreaClass = isFullscreen
+    ? 'relative min-h-0 flex-1 p-2 lg:flex lg:flex-row lg:gap-2'
+    : 'flex min-h-0 flex-1 flex-col gap-2 p-2 lg:flex-row'
+  const selfTileClass = isFullscreen
+    ? 'absolute bottom-4 left-4 z-20 h-40 w-28 overflow-hidden rounded-xl border border-border bg-muted shadow-xl lg:static lg:z-auto lg:h-auto lg:w-auto lg:flex-1 lg:shadow-none'
+    : 'relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-muted'
+  const strangerTileClass = isFullscreen
+    ? 'relative h-full w-full overflow-hidden rounded-xl border border-border bg-muted lg:h-auto lg:min-h-0 lg:flex-1'
+    : 'relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-muted'
+
+  const controlButtons = (
+    <>
+      <button onClick={onToggleMute} aria-label={muted ? 'Unmute' : 'Mute'}
+        className={`flex h-10 w-10 items-center justify-center rounded-full border backdrop-blur transition-colors
+          ${muted ? 'border-destructive bg-destructive text-destructive-foreground' : 'border-border bg-background/70 hover:bg-muted'}`}>
+        {muted ? <MicOff size={18} /> : <Mic size={18} />}
+      </button>
+      <button onClick={onToggleCamera} aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'}
+        className={`flex h-10 w-10 items-center justify-center rounded-full border backdrop-blur transition-colors
+          ${cameraOff ? 'border-destructive bg-destructive text-destructive-foreground' : 'border-border bg-background/70 hover:bg-muted'}`}>
+        {cameraOff ? <VideoOff size={18} /> : <Video size={18} />}
+      </button>
+    </>
+  )
+
   return (
     <div className="relative flex h-full flex-col lg:flex-row">
-      {/* Video area — 50/50 stacked on mobile, side-by-side on desktop */}
-      <div className="flex min-h-0 flex-1 flex-col gap-2 p-2 lg:flex-row">
+      {/* Video area — split (50/50) or fullscreen (stranger fills, self PIP) */}
+      <div className={videoAreaClass}>
 
-        {/* LEFT — self */}
-        <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-muted">
+        {/* SELF */}
+        <div className={selfTileClass}>
           <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full -scale-x-100 object-cover" />
           <span className="absolute left-3 top-3 z-10 rounded-full border border-border bg-background/70 px-2.5 py-1 text-xs font-medium backdrop-blur">
             You
@@ -121,33 +152,51 @@ export function VideoChat({
             <Overlay><p className="text-sm text-muted-foreground">Your camera is off</p></Overlay>
           )}
 
+          {/* Network bars — same P2P quality shown on both tiles */}
+          {connState === 'connected' && (
+            <div className="absolute right-3 top-3 z-10">
+              <NetworkBars quality={quality} />
+            </div>
+          )}
+
+          {/* In-tile controls: shown in split, and on lg even in fullscreen.
+              Hidden on the tiny mobile PIP (fullscreen uses the floating bar). */}
           {mediaReady && (
-            <div className="absolute bottom-3 left-3 z-10 flex gap-2">
-              <button onClick={onToggleMute} aria-label={muted ? 'Unmute' : 'Mute'}
-                className={`flex h-10 w-10 items-center justify-center rounded-full border backdrop-blur transition-colors
-                  ${muted ? 'border-destructive bg-destructive text-destructive-foreground' : 'border-border bg-background/70 hover:bg-muted'}`}>
-                {muted ? <MicOff size={18} /> : <Mic size={18} />}
-              </button>
-              <button onClick={onToggleCamera} aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'}
-                className={`flex h-10 w-10 items-center justify-center rounded-full border backdrop-blur transition-colors
-                  ${cameraOff ? 'border-destructive bg-destructive text-destructive-foreground' : 'border-border bg-background/70 hover:bg-muted'}`}>
-                {cameraOff ? <VideoOff size={18} /> : <Video size={18} />}
-              </button>
+            <div className={`absolute bottom-3 left-3 z-10 gap-2 ${isFullscreen ? 'hidden lg:flex' : 'flex'}`}>
+              {controlButtons}
             </div>
           )}
         </div>
 
-        {/* RIGHT — stranger */}
-        <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-muted">
+        {/* STRANGER */}
+        <div className={strangerTileClass}>
           <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
           <span className="absolute left-3 top-3 z-10 rounded-full border border-border bg-background/70 px-2.5 py-1 text-xs font-medium backdrop-blur">
             {partnerLabel}
           </span>
 
-          {/* Connection quality */}
+          {/* Network bars — same P2P quality shown on both tiles */}
           {connState === 'connected' && (
             <div className="absolute right-3 top-3 z-10">
-              <NetworkBars quality={quality} latencyMs={latencyMs} />
+              <NetworkBars quality={quality} />
+            </div>
+          )}
+
+          {/* Partner mic/camera indicators */}
+          {connState === 'connected' && (partnerMuted || partnerCameraOff) && (
+            <div className="absolute bottom-3 left-3 z-10 flex gap-2">
+              {partnerMuted && (
+                <span title="Muted"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-destructive bg-destructive/90 text-destructive-foreground">
+                  <MicOff size={15} />
+                </span>
+              )}
+              {partnerCameraOff && (
+                <span title="Camera off"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background/80 backdrop-blur">
+                  <VideoOff size={15} />
+                </span>
+              )}
             </div>
           )}
 
@@ -171,6 +220,13 @@ export function VideoChat({
             </Overlay>
           ) : null}
         </div>
+
+        {/* Fullscreen floating controls (mobile only) */}
+        {isFullscreen && mediaReady && (
+          <div className="absolute bottom-4 left-1/2 z-30 flex -translate-x-1/2 gap-3 lg:hidden">
+            {controlButtons}
+          </div>
+        )}
       </div>
 
       {/* Desktop/tablet: chat as a right sidebar */}

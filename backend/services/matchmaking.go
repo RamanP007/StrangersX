@@ -97,6 +97,10 @@ func popLiveCandidate(ctx context.Context, key, socketID string) (string, bool) 
 			log.Printf("[matchmaking] discarding candidate=%s (already in a room) key=%s", val, key)
 			continue // already matched via another queue entry
 		}
+		if isPending(val) {
+			log.Printf("[matchmaking] discarding candidate=%s (mid match-confirmation) key=%s", val, key)
+			continue // already in a pending match handshake
+		}
 		log.Printf("[matchmaking] accepted candidate=%s for socket=%s key=%s", val, socketID, key)
 		return val, true
 	}

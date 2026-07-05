@@ -12,11 +12,13 @@ import (
 const onlineKey = "online:count"
 
 // PresenceHub tracks lightweight "online" websocket connections (one per open
-// browser tab) and broadcasts the live count. The authoritative count lives in
-// Redis (online:count) so it survives across the app and can be read via API.
+// browser tab) and broadcasts the live count. Only *active* tabs are counted:
+// a tab idle past the client-side inactivity threshold sends {"type":"idle"}
+// and stops counting until it sends {"type":"active"} again. The authoritative
+// count lives in Redis (online:count).
 type PresenceHub struct {
 	mu    sync.Mutex
-	conns map[*websocket.Conn]bool
+	conns map[*websocket.Conn]bool // value = currently active (counted)
 }
 
 var Presence = &PresenceHub{conns: make(map[*websocket.Conn]bool)}
@@ -40,21 +42,51 @@ func GetOnlineCount() int64 {
 	return n
 }
 
+func incrOnline() int64 {
+	n, _ := RDB.Incr(context.Background(), onlineKey).Result()
+	return n
+}
+
+func decrOnline() int64 {
+	m, _ := RDB.Decr(context.Background(), onlineKey).Result()
+	if m < 0 {
+		RDB.Set(context.Background(), onlineKey, 0, 0)
+		m = 0
+	}
+	return m
+}
+
+// add registers a new connection as active.
 func (h *PresenceHub) add(conn *websocket.Conn) {
 	h.mu.Lock()
 	h.conns[conn] = true
 	h.mu.Unlock()
 }
 
-// remove returns true if the connection was present (so we only decrement once).
-func (h *PresenceHub) remove(conn *websocket.Conn) bool {
+// setActive flips a connection's active state, returning true only when the
+// state actually changed so the caller adjusts the count exactly once.
+func (h *PresenceHub) setActive(conn *websocket.Conn, active bool) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if _, ok := h.conns[conn]; ok {
-		delete(h.conns, conn)
-		return true
+	cur, ok := h.conns[conn]
+	if !ok || cur == active {
+		return false
 	}
-	return false
+	h.conns[conn] = active
+	return true
+}
+
+// remove drops a connection. Returns true if it was still counted as active, so
+// the caller decrements exactly once.
+func (h *PresenceHub) remove(conn *websocket.Conn) (present, wasActive bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	active, ok := h.conns[conn]
+	if !ok {
+		return false, false
+	}
+	delete(h.conns, conn)
+	return true, active
 }
 
 func (h *PresenceHub) broadcast(count int64) {
@@ -69,7 +101,13 @@ func (h *PresenceHub) broadcast(count int64) {
 	}
 }
 
+type presenceInMsg struct {
+	Type string `json:"type"` // idle | active
+}
+
 // ServePresence upgrades a connection, counts it, and streams the live total.
+// The client sends {"type":"idle"} / {"type":"active"} as the tab's activity
+// changes so idle tabs don't inflate the count.
 func ServePresence(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -77,25 +115,33 @@ func ServePresence(w http.ResponseWriter, r *http.Request) {
 	}
 
 	Presence.add(conn)
-	n, _ := RDB.Incr(context.Background(), onlineKey).Result()
-	Presence.broadcast(n)
+	Presence.broadcast(incrOnline())
 
 	go func() {
 		defer func() {
-			if Presence.remove(conn) {
-				m, _ := RDB.Decr(context.Background(), onlineKey).Result()
-				if m < 0 {
-					RDB.Set(context.Background(), onlineKey, 0, 0)
-					m = 0
-				}
-				Presence.broadcast(m)
+			if present, wasActive := Presence.remove(conn); present && wasActive {
+				Presence.broadcast(decrOnline())
 			}
 			conn.Close()
 		}()
-		// Read loop: we don't expect messages — it just detects disconnect.
 		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
+			_, raw, err := conn.ReadMessage()
+			if err != nil {
 				return
+			}
+			var m presenceInMsg
+			if json.Unmarshal(raw, &m) != nil {
+				continue
+			}
+			switch m.Type {
+			case "idle":
+				if Presence.setActive(conn, false) {
+					Presence.broadcast(decrOnline())
+				}
+			case "active":
+				if Presence.setActive(conn, true) {
+					Presence.broadcast(incrOnline())
+				}
 			}
 		}
 	}()
