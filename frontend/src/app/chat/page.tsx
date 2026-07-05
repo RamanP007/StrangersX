@@ -11,10 +11,11 @@ import { MatchingScreen } from '@/components/MatchingScreen'
 import { InterestTags } from '@/components/InterestTags'
 import { ReportModal } from '@/components/ReportModal'
 import { UsernamePopup } from '@/components/UsernamePopup'
+import { ChatControlBar } from '@/components/ChatControlBar'
 import { useSocket } from '@/hooks/useSocket'
 import { useWebRTC } from '@/hooks/useWebRTC'
 import { useBackendAuth } from '@/components/BackendAuthProvider'
-import { MessageSquare, Video, Shuffle, Target, Lock, MoreVertical, Clock, Layout, Flag, LogOut } from '@/components/icons'
+import { MessageSquare, Video, Shuffle, Target, Lock } from '@/components/icons'
 import type { MatchMode, ChatType } from '@/types'
 
 export default function ChatPage() {
@@ -33,8 +34,6 @@ export default function ChatPage() {
   const [videoStartCameraOff, setVideoStartCameraOff] = useState(false)
   const [videoStartMuted, setVideoStartMuted] = useState(false)
   const [videoLayout, setVideoLayout] = useState<'split' | 'fullscreen'>('split')
-  const [menuOpen, setMenuOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
 
   const profile = authUser
 
@@ -142,16 +141,6 @@ export default function ChatPage() {
     }
   }, [isMatched, activeChatType, webrtc.muted, webrtc.cameraOff, sendMediaState])
 
-  // Close the mobile three-dots menu on outside click.
-  useEffect(() => {
-    if (!menuOpen) return
-    function onDoc(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [menuOpen])
-
   const videoJoinedRef = useRef(false)
   useEffect(() => {
     if (!videoSession) { videoJoinedRef.current = false; return }
@@ -189,104 +178,20 @@ export default function ChatPage() {
         {videoSession ? (
           /* ── Full-screen video layout (chat sidebar on desktop/tablet, stacked on mobile) ── */
           <div className="flex h-[calc(100dvh-4rem)] flex-col">
-            {/* Control bar */}
-            <div className="flex items-center justify-between gap-2 overflow-x-auto border-b border-border px-4 py-2">
-              <div className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap text-sm">
-                {isMatched ? (
-                  reconnecting ? (
-                    <>
-                      <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-                      <span className="text-muted-foreground">Reconnecting…</span>
-                    </>
-                  ) : partnerReconnecting ? (
-                    <>
-                      <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-                      <span className="text-muted-foreground">Stranger reconnecting…</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                      <span className="font-medium text-foreground">
-                        <span className="hidden sm:inline">Connected · {partnerLabel}</span>
-                        <span className="sm:hidden">{partnerLabel}</span>
-                      </span>
-                      <span className="flex items-center gap-1 text-muted-foreground">
-                        <Clock size={13} /> <span className="tabular-nums">{timerLabel}</span>
-                      </span>
-                    </>
-                  )
-                ) : status === 'disconnected' ? (
-                  <>
-                    <span className="h-2 w-2 rounded-full bg-destructive" />
-                    <span className="text-muted-foreground">Stranger disconnected</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-                    <span className="text-muted-foreground">Looking for someone…</span>
-                  </>
-                )}
-              </div>
-              <div className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap">
-                {status === 'disconnected' && (
-                  <button onClick={handleSkip} className="btn px-4 py-1.5 text-sm">Find new</button>
-                )}
-
-                {/* Desktop: full button row */}
-                <div className="hidden items-center gap-2 lg:flex">
-                  {isMatched && isSignedIn && !partnerIsGuest && activeChatType === 'video' && (
-                    <button onClick={handleSwitchToText} aria-label="Switch to text"
-                      className="btn-outline flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-sm">
-                      <MessageSquare size={14} /> Switch to text
-                    </button>
-                  )}
-                  {isMatched && (
-                    <button onClick={handleSkip} className="btn-outline px-3 py-1.5 text-sm">Skip</button>
-                  )}
-                  {isMatched && (
-                    <button onClick={() => setShowReport(true)} className="btn-outline px-3 py-1.5 text-sm">Report</button>
-                  )}
-                  <button onClick={handleStop} className="btn-outline px-3 py-1.5 text-sm">Stop</button>
-                </div>
-
-                {/* Mobile: Skip + three-dots menu */}
-                <div className="flex items-center gap-2 lg:hidden">
-                  {isMatched && (
-                    <button onClick={handleSkip} className="btn-outline px-3 py-1.5 text-sm">Skip</button>
-                  )}
-                  <div ref={menuRef} className="relative">
-                    <button onClick={() => setMenuOpen(o => !o)} aria-label="More options" aria-haspopup="menu" aria-expanded={menuOpen}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-foreground transition-colors hover:bg-muted">
-                      <MoreVertical size={18} />
-                    </button>
-                    {menuOpen && (
-                      <div role="menu" className="absolute right-0 top-full z-30 mt-1 w-48 overflow-hidden rounded-xl border border-border bg-card p-1 shadow-xl animate-fade-in">
-                        {isMatched && (
-                          <button role="menuitem" onClick={() => { setMenuOpen(false); setShowReport(true) }}
-                            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted">
-                            <Flag size={16} className="text-muted-foreground" /> Report
-                          </button>
-                        )}
-                        {isMatched && isSignedIn && !partnerIsGuest && activeChatType === 'video' && (
-                          <button role="menuitem" onClick={() => { setMenuOpen(false); handleSwitchToText() }}
-                            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted">
-                            <MessageSquare size={16} className="text-muted-foreground" /> Switch to Chat
-                          </button>
-                        )}
-                        <button role="menuitem" onClick={() => { setMenuOpen(false); setVideoLayout(l => l === 'split' ? 'fullscreen' : 'split') }}
-                          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted">
-                          <Layout size={16} className="text-muted-foreground" /> Change layout
-                        </button>
-                        <button role="menuitem" onClick={() => { setMenuOpen(false); handleStop() }}
-                          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-destructive transition-colors hover:bg-destructive/10">
-                          <LogOut size={16} /> Stop
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
+            <ChatControlBar
+              variant="video"
+              status={status}
+              reconnecting={reconnecting}
+              partnerReconnecting={partnerReconnecting}
+              partnerLabel={partnerLabel}
+              timerLabel={timerLabel}
+              showSwitch={isSignedIn && !partnerIsGuest && activeChatType === 'video'}
+              onSwitch={handleSwitchToText}
+              onSkip={handleSkip}
+              onStop={handleStop}
+              onReport={() => setShowReport(true)}
+              onChangeLayout={() => setVideoLayout(l => (l === 'split' ? 'fullscreen' : 'split'))}
+            />
 
             {/* Video + chat */}
             <div className="min-h-0 flex-1">
@@ -304,6 +209,8 @@ export default function ChatPage() {
                 cameraOff={webrtc.cameraOff}
                 onToggleMute={webrtc.toggleMute}
                 onToggleCamera={webrtc.toggleCamera}
+                onSwitchCamera={webrtc.switchCamera}
+                facingMode={webrtc.facingMode}
                 messages={messages}
                 onSend={sendMessage}
                 onTyping={sendTyping}
@@ -319,53 +226,21 @@ export default function ChatPage() {
         ) : (
           /* ── Constrained layout (pre-chat setup + text chat) ── */
           <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 px-4 py-6">
-            {/* Status bar (matched) */}
-            {isMatched && (
-              <div className="flex items-center justify-between gap-2 overflow-x-auto rounded-xl border border-border bg-card px-4 py-2.5">
-                <div className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap text-sm">
-                  {reconnecting ? (
-                    <>
-                      <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-                      <span className="text-muted-foreground">Reconnecting…</span>
-                    </>
-                  ) : partnerReconnecting ? (
-                    <>
-                      <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-                      <span className="text-muted-foreground">Stranger reconnecting…</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                      <span className="font-medium text-foreground">Connected</span>
-                    </>
-                  )}
-                </div>
-                <div className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap">
-                  {isSignedIn && !partnerIsGuest && activeChatType === 'text' && (
-                    <button onClick={handleSwitchToVideo} aria-label="Switch to video"
-                      className="btn-outline flex items-center gap-1.5 whitespace-nowrap px-3 py-1 text-sm">
-                      <Video size={14} /> <span className="hidden sm:inline">Switch to video</span>
-                    </button>
-                  )}
-                  <button onClick={handleSkip} className="btn-outline px-3 py-1 text-sm">Skip</button>
-                  <button onClick={handleStop} className="btn-outline px-3 py-1 text-sm">Stop</button>
-                  <button onClick={() => setShowReport(true)} className="btn-outline px-3 py-1 text-sm">Report</button>
-                </div>
-              </div>
-            )}
-
-            {/* Status bar (disconnected) */}
-            {status === 'disconnected' && (
-              <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-2.5">
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="h-2 w-2 rounded-full bg-destructive" />
-                  <span className="text-muted-foreground">Stranger disconnected</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={handleSkip} className="btn px-4 py-1.5 text-sm">Find new stranger</button>
-                  <button onClick={handleStop} className="btn-outline px-4 py-1.5 text-sm">Stop</button>
-                </div>
-              </div>
+            {/* Header — same control bar as video chat (status + three-dots) */}
+            {started && (isMatched || status === 'disconnected') && (
+              <ChatControlBar
+                variant="text"
+                status={status}
+                reconnecting={reconnecting}
+                partnerReconnecting={partnerReconnecting}
+                partnerLabel={partnerLabel}
+                timerLabel={timerLabel}
+                showSwitch={isSignedIn && !partnerIsGuest && activeChatType === 'text'}
+                onSwitch={handleSwitchToVideo}
+                onSkip={handleSkip}
+                onStop={handleStop}
+                onReport={() => setShowReport(true)}
+              />
             )}
 
             {/* Main card */}

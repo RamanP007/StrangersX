@@ -6,7 +6,7 @@ import type { RTCConnState } from '@/hooks/useWebRTC'
 import type { Message, ReplyRef } from '@/types'
 import { ChatBox } from './ChatBox'
 import { Sonar } from './Sonar'
-import { Mic, MicOff, Video, VideoOff, MessageSquare, X } from './icons'
+import { Mic, MicOff, Video, VideoOff, MessageSquare, X, SwitchCamera } from './icons'
 
 type Quality = 'good' | 'fair' | 'poor' | null
 
@@ -24,6 +24,8 @@ interface Props {
   cameraOff: boolean
   onToggleMute: () => void
   onToggleCamera: () => void
+  onSwitchCamera?: () => void
+  facingMode?: 'user' | 'environment'
   messages: Message[]
   onSend: (text: string, reply?: ReplyRef) => void
   onTyping?: (isTyping: boolean) => void
@@ -66,7 +68,7 @@ export function VideoChat({
   localVideoRef, remoteVideoRef,
   mediaReady, mediaError, onRetryMedia,
   connState, quality, searching, partnerLeft,
-  muted, cameraOff, onToggleMute, onToggleCamera,
+  muted, cameraOff, onToggleMute, onToggleCamera, onSwitchCamera, facingMode = 'user',
   messages, onSend, onTyping, partnerTyping, chatDisabled, partnerLabel = 'Stranger',
   partnerMuted = false, partnerCameraOff = false, layout = 'split',
 }: Props) {
@@ -102,12 +104,56 @@ export function VideoChat({
   const videoAreaClass = isFullscreen
     ? 'relative min-h-0 flex-1 p-2 lg:flex lg:flex-row lg:gap-2'
     : 'flex min-h-0 flex-1 flex-col gap-2 p-2 lg:flex-row'
-  const selfTileClass = isFullscreen
-    ? 'absolute bottom-4 left-4 z-20 h-40 w-28 overflow-hidden rounded-xl border border-border bg-muted shadow-xl lg:static lg:z-auto lg:h-auto lg:w-auto lg:flex-1 lg:shadow-none'
+  // In fullscreen the self tile is a draggable PIP that snaps to any corner.
+  const selfTileBase = isFullscreen
+    ? 'absolute z-20 h-40 w-28 cursor-grab touch-none select-none overflow-hidden rounded-xl border border-border bg-muted shadow-xl active:cursor-grabbing lg:static lg:z-auto lg:h-auto lg:w-auto lg:cursor-default lg:touch-auto lg:flex-1 lg:shadow-none'
     : 'relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-muted'
   const strangerTileClass = isFullscreen
     ? 'relative h-full w-full overflow-hidden rounded-xl border border-border bg-muted lg:h-auto lg:min-h-0 lg:flex-1'
     : 'relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-muted'
+
+  // Draggable corner PIP (fullscreen only): drag freely, snap to the nearest
+  // corner on release.
+  const areaRef = useRef<HTMLDivElement>(null)
+  const [pipCorner, setPipCorner] = useState<'tl' | 'tr' | 'bl' | 'br'>('bl')
+  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null)
+  const dragRef = useRef({ startX: 0, startY: 0, origX: 0, origY: 0, w: 0, h: 0, dragging: false })
+  const cornerClass = { tl: 'top-4 left-4', tr: 'top-4 right-4', bl: 'bottom-4 left-4', br: 'bottom-4 right-4' }[pipCorner]
+
+  function onPipPointerDown(e: React.PointerEvent) {
+    if (!isFullscreen) return
+    const area = areaRef.current?.getBoundingClientRect()
+    const pip = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    if (!area) return
+    dragRef.current = {
+      startX: e.clientX, startY: e.clientY,
+      origX: pip.left - area.left, origY: pip.top - area.top,
+      w: pip.width, h: pip.height, dragging: true,
+    }
+    setDragPos({ x: pip.left - area.left, y: pip.top - area.top })
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+  function onPipPointerMove(e: React.PointerEvent) {
+    const d = dragRef.current
+    if (!d.dragging) return
+    const area = areaRef.current?.getBoundingClientRect()
+    if (!area) return
+    const x = Math.max(0, Math.min(d.origX + (e.clientX - d.startX), area.width - d.w))
+    const y = Math.max(0, Math.min(d.origY + (e.clientY - d.startY), area.height - d.h))
+    setDragPos({ x, y })
+  }
+  function onPipPointerUp(e: React.PointerEvent) {
+    const d = dragRef.current
+    if (!d.dragging) return
+    d.dragging = false
+    const area = areaRef.current?.getBoundingClientRect()
+    if (area && dragPos) {
+      const left = dragPos.x + d.w / 2 < area.width / 2
+      const top = dragPos.y + d.h / 2 < area.height / 2
+      setPipCorner(`${top ? 't' : 'b'}${left ? 'l' : 'r'}` as 'tl' | 'tr' | 'bl' | 'br')
+    }
+    setDragPos(null)
+  }
 
   const controlButtons = (
     <>
@@ -121,18 +167,31 @@ export function VideoChat({
           ${cameraOff ? 'border-destructive bg-destructive text-destructive-foreground' : 'border-border bg-background/70 hover:bg-muted'}`}>
         {cameraOff ? <VideoOff size={18} /> : <Video size={18} />}
       </button>
+      {onSwitchCamera && (
+        <button onClick={onSwitchCamera} aria-label="Switch camera"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background/70 backdrop-blur transition-colors hover:bg-muted lg:hidden">
+          <SwitchCamera size={18} />
+        </button>
+      )}
     </>
   )
 
   return (
     <div className="relative flex h-full flex-col lg:flex-row">
       {/* Video area — split (50/50) or fullscreen (stranger fills, self PIP) */}
-      <div className={videoAreaClass}>
+      <div ref={areaRef} className={videoAreaClass}>
 
         {/* SELF */}
-        <div className={selfTileClass}>
-          <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full -scale-x-100 object-cover" />
-          <span className="absolute left-3 top-3 z-10 rounded-full border border-border bg-background/70 px-2.5 py-1 text-xs font-medium backdrop-blur">
+        <div
+          className={`${selfTileBase} ${isFullscreen && !dragPos ? cornerClass : ''}`}
+          style={isFullscreen && dragPos ? { left: dragPos.x, top: dragPos.y, right: 'auto', bottom: 'auto' } : undefined}
+          onPointerDown={onPipPointerDown}
+          onPointerMove={onPipPointerMove}
+          onPointerUp={onPipPointerUp}
+        >
+          <video ref={localVideoRef} autoPlay playsInline muted className={`h-full w-full object-cover ${facingMode === 'user' ? '-scale-x-100' : ''}`} />
+          {/* "You" label + network bars hidden on the mobile PIP (fullscreen). */}
+          <span className={`absolute left-3 top-3 z-10 rounded-full border border-border bg-background/70 px-2.5 py-1 text-xs font-medium backdrop-blur ${isFullscreen ? 'hidden lg:block' : ''}`}>
             You
           </span>
 
@@ -152,9 +211,9 @@ export function VideoChat({
             <Overlay><p className="text-sm text-muted-foreground">Your camera is off</p></Overlay>
           )}
 
-          {/* Network bars — same P2P quality shown on both tiles */}
+          {/* Network bars — same P2P quality shown on both tiles (hidden on PIP) */}
           {connState === 'connected' && (
-            <div className="absolute right-3 top-3 z-10">
+            <div className={`absolute right-3 top-3 z-10 ${isFullscreen ? 'hidden lg:block' : ''}`}>
               <NetworkBars quality={quality} />
             </div>
           )}

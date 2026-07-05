@@ -225,6 +225,15 @@ export const Layout = (p: IconProps) => (
   </svg>
 )
 
+export const SwitchCamera = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5l2 3h1" />
+    <path d="M13.5 5H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5l-2-3" />
+    <circle cx="12" cy="12" r="3" />
+    <path d="M9 12H7l1.5-1.5M15 12h2l-1.5 1.5" />
+  </svg>
+)
+
 export const Flag = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M4 21V4a1 1 0 0 1 1-1h13l-3 5 3 5H5" />

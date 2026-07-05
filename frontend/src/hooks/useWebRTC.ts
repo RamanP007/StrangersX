@@ -64,6 +64,8 @@ export function useWebRTC({ mediaActive, peerActive, initiator, startCameraOff =
   const [connState, setConnState] = useState<RTCConnState>('idle')
   const [muted, setMuted] = useState(false)
   const [cameraOff, setCameraOff] = useState(false)
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user')
+  const facingRef = useRef<'user' | 'environment'>('user')
   const [retryTick, setRetryTick] = useState(0)
   const [quality, setQuality] = useState<'good' | 'fair' | 'poor' | null>(null)
   const [latencyMs, setLatencyMs] = useState<number | null>(null)
@@ -88,6 +90,8 @@ export function useWebRTC({ mediaActive, peerActive, initiator, startCameraOff =
       setMediaError(null)
       setMuted(false)
       setCameraOff(false)
+      facingRef.current = 'user'
+      setFacingMode('user')
       return
     }
 
@@ -323,10 +327,43 @@ export function useWebRTC({ mediaActive, peerActive, initiator, startCameraOff =
     if (track) { track.enabled = !track.enabled; setCameraOff(!track.enabled) }
   }, [])
 
+  // Flip between front ('user') and back ('environment') cameras: acquire a new
+  // video track with the opposite facing mode, hot-swap it into the peer
+  // connection (replaceTrack — no renegotiation), and into the local preview.
+  const switchCamera = useCallback(async () => {
+    const stream = localStreamRef.current
+    if (!stream) return
+    const next = facingRef.current === 'user' ? 'environment' : 'user'
+    try {
+      const ns = await navigator.mediaDevices.getUserMedia({ video: { facingMode: next }, audio: false })
+      const newTrack = ns.getVideoTracks()[0]
+      if (!newTrack) return
+      const oldTrack = stream.getVideoTracks()[0]
+      // Preserve the current on/off state across the swap.
+      newTrack.enabled = oldTrack ? oldTrack.enabled : true
+
+      const pc = pcRef.current
+      if (pc) {
+        const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video')
+        if (sender) await sender.replaceTrack(newTrack)
+      }
+
+      if (oldTrack) { stream.removeTrack(oldTrack); oldTrack.stop() }
+      stream.addTrack(newTrack)
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream
+
+      facingRef.current = next
+      setFacingMode(next)
+    } catch (err) {
+      console.error('[webrtc] switchCamera failed:', err)
+    }
+  }, [])
+
   return {
     localVideoRef, remoteVideoRef,
     mediaReady, mediaError, retryMedia,
     connState, quality, latencyMs,
     muted, cameraOff, toggleMute, toggleCamera,
+    facingMode, switchCamera,
   }
 }
